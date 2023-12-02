@@ -253,11 +253,13 @@ my(@meta,%meta); &LoadMeta($arg{gitmeta});			# Get existing metadata
 
 if($arg{save}) {
   &GetIgnore();
+  @ARGV='.' unless(@ARGV);					# do all if none specified
   &GetMeta(undef,@ARGV);					# Append new metadata to @meta
   &SaveMeta($arg{gitmeta});					# Write new metadata to file
   `git add $arg{gitmeta}` if($0=~/pre-commit/);			# save the metadata with this commit too
 } elsif($arg{restore}) {
   &GetIgnore();
+  @ARGV='.' unless(@ARGV);					# do all if none specified
   my @files=&GetMeta('nosave',@ARGV);				# which files to restore
   &RestoreMeta(@files);						# restore all or some file metadatas
   
