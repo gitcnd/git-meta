@@ -1,17 +1,74 @@
 #!/usr/bin/perl -w
 
-our $VERSION='0.20231111';	# Please use format: major_revision.YYYYMMDD[hh24mi]
+our $VERSION='0.20250108';	# Please use format: major_revision.YYYYMMDD[hh24mi]
 
-=head1 NAME
+=head1 git-meta
 
-git-meta.pl - solution for maintaining all the file dates, times, ownership, and access permissions in git
-.git/hooks/pre-commit	- this same perl script, when it has the name "pre-commit" assumes you're running "git-meta.pl -save"
-.git/hooks/post-merge	- this same perl script, when it has the name "post-merge" assumes you're running "git-meta.pl -restore"
+Easy solution to:
 
-newgit.pl		- this same perl script, when it has the name "newgit.pl", behaves as if the -newgit option was supplied - see below.
+=over 4
 
-=head1 SYNOPSIS
+=item *
 
+Automatically preserve all the correct dates, times (including zones and microseconds), ownership, and access permissions on all your files in git
+
+=item *
+
+Quickly set up a new non-cloud, non-github private git project on your own servers, which you and/or your team can work with from any number of other machines
+
+=item *
+
+Optionally have your server automatically extract your files and keep them up-to-date (for example: so you can deploy to your webserver's live environment with "git push"
+
+=back
+
+
+
+=head1 Quick-Start
+
+=over 4
+
+=item 1
+
+install it:
+
+	git clone https://github.com/gitcnd/git-meta.git
+	sudo cp -a git-meta/git-meta.pl /usr/local/bin/
+
+=back
+
+then either
+
+
+=over 4
+
+=item *
+
+set up to use it:
+
+	cd my_existing_repo
+	git-meta.pl -setup -l /usr/local/bin/git-meta.pl
+
+=back
+
+or
+
+=over 4
+
+=item *
+
+create a brand-new local project
+
+	git-meta.pl -newgit -l . MyProject /var/www/html/MyProject-optional-autoextract-folder
+
+
+=back
+
+
+
+=head1 Synopsis
+
+=head2 Mode 1 - preserving dates/times/ownership/permissions etc:
 
 	# creates the pre-commit and post-merge hooks (see below)
 	cd ~/myrepo
@@ -20,23 +77,60 @@ newgit.pl		- this same perl script, when it has the name "newgit.pl", behaves as
 	git-meta.pl -setup
 
 
-	# Typically called from the pre-commit
+	# optional manual "save" usage (Typically this is called from the pre-commit) to preserve dates/times/ownership/permissions
 	cd ~/myrepo
 	git-meta.pl -save [optional list of files]
 
 
-	# Typically called from post-merge
+	# optional manual "restore" usage (Typically called from post-merge)
 	cd ~/myrepo
 	git-meta.pl -restore [optional list of files]
 
 
-	# sets up your system to automatically extract files every time you push - handy for working on your own private mahcines, such as when maintaining web servers.
-	newgit.pl ... see below
+=head3 How Mode 1 works:
 
-	Note: adds the file .git-meta to your project
-	Recommend: set up .gitignore properly first
+A git pre-commit hook is added, which creats the file ".git-meta" in your project and adds this to your commit.  
+.git-meta contains all the real file metadata in your project (correct dates and times, ownerships, permissions, etc)
 
-=head2 OPTIONS
+A git post-merge hook is added, which restores all the correct information from the .git-meta file
+
+
+
+=head2 Mode 2 - Automatically set up a new full-featued non-cloud repo on your own machine/servers
+
+	# Create a new local master repo, which preserves dates etc, and also automatically extracts files every time you push (handy for automatically deploying to a live web server through git-push for example)
+	# (handy for working on your own private mahcines, such as when maintaining web servers.)
+	perl git-meta.pl -master_location=/usr/local/apache2/gitblobs -newgit mynewproject /usr/local/apache2/htdocs/mynewproject
+
+	# creates a working 3-folder shared dev environment for production web server site
+	# Omitting "-master_location" will default to ~/gitblobs
+	# Uses `sudo chmod g+s` to allow for multi-user environemnts based on unix group permissions.
+
+Note: adds the file .git-meta to your project
+
+
+=head3 How Mode 2 works:
+
+Run git-meta.pl with the -newgit option on your server (e.g. your web server) where your master files will live.  e.g.
+
+	perl git-meta.pl -newgit MyProject /var/www/html/MyProject
+
+A "master" folder where all your master files will live is created locally on that server, by default this will be in ~/gitblobs/MyProject
+A "working" folder where you check out and edit your files etc is create locally too: e.g. the example folder will be: ./MyProject
+An optional "live" folder is also created - this is where all your most up-to-date copies of your files will be auto-extracted into (e.g. typically your webroot folder, like /var/www/html/MyProject/ )
+Permissions etc are correctly set up for teams to work on these files (see also the -group option)
+The "git-meta.pl -setup" option is applied locally too, so all your file dates/etc will be properly preserved at all times
+
+You can then clone additional copies of the above onto other machines - e.g. your laptop, like this:
+
+	git clone ssh://your-server/home/username/gitblobs/MyProject
+	cd MyProject
+	git-meta.pl -setup -l . 
+
+be sure to run that `git-meta.pl -setup -l .` command: "git clone" does not automatically clone the hooks you need which are required to keep your dates/times/etc preserved.
+
+
+=head2 Options
 
 	-f		# Specify the meta filename to use ( defaults to .git-meta )
 	-save		# Save into the .git-meta. Saves all files if none are provided
@@ -44,28 +138,41 @@ newgit.pl		- this same perl script, when it has the name "newgit.pl", behaves as
 	-setup		# create the necessary pre-commit and post-merge files to activate this solution in your repo
 	-strict		# Stop with errors instead of assume what the user wants (partially implimented)
 	-dryrun		# Show what would be done, without doing it (partially implimented)
-	-debug		# print everything going on
 	-l		# use a symlink when doing setup, for pre-commit and post-merge (e.g. -l /usr/local/bin/git-meta.pl) - otherwise - copies the file there.
+	-newgit		# creates a working 3-folder shared dev environment for production web (or other) server site
+	-master_location# Where to store the master filess (defaults to ~/gitblobs/)
+	-group		# which groupname do all developers belong to
+	-debug		# print everything going on
 
 =head2 .git-meta file format
 
 	# lines starting with # are comments
 	octal file mode, owner, group, mtime, atime, spare1, spare2, filename
 
-=head2 known issues
+=cut
 
-	Only handles .gitignore files found inside your repo (not any set in your profile or elsewhere)
+#	=head2 known issues
+#	
+#		Only handles .gitignore files found inside your repo (not any set in your profile or elsewhere)
+#	
+#	
+#	=head2 TODO
+#	
+#		(all done)
 
 
+=head1 FILENAMES
 
+.git/hooks/pre-commit	- this same perl script, when it has the name "pre-commit" assumes you're running "git-meta.pl -save"
+.git/hooks/post-merge	- this same perl script, when it has the name "post-merge" assumes you're running "git-meta.pl -restore"
+newgit.pl		- this same perl script, when it has the name "newgit.pl", behaves as if the -newgit option was supplied - see below.
 
-=head1 NAME
 
 newgit.pl - create a new, optionally auto-extracting, private git repo, with preservation of file metadata (dates/time, permissions, ownership)
  -or-
 git-meta.pl -newgit
 
-=head1 SYNOPSIS
+=head1 -newgit Synopsis
 
 	newgit.pl gitname [optional-auto-extract-location]
 	# creates gitname				# this is where master files live. Uses $master_location/gitname unless gitname starts with /
@@ -85,7 +192,7 @@ git-meta.pl -newgit
 
 =head2 File location info
 
-	if there's no "/" within "gitname", it will put the files into $master_location/gitname (e.g. ~/Downloads/gitblobs/gitname ) by default
+	if there's no "/" within "gitname", it will put the files into $master_location/gitname (e.g. ~/gitblobs/gitname ) by default
 
 =cut
 ######################################################################
@@ -97,6 +204,7 @@ use warnings;		# same as -w switch above
 
 use POSIX;		# for strftime
 use Time::HiRes;	# Getting file microseconds
+#use Getopt::Long qw(:config require_order);	# Commandline argument parsing
 use Getopt::Long;	# Commandline argument parsing
 use Pod::Usage;		# Inbuilt documentation helper
 my %gitignore;		# global
@@ -107,14 +215,16 @@ my ($norm,$red,$grn,$yel,$nav,$blu,$save,$rest,$clr,$prp,$wht)=!$is_tty_out ? ('
 
 
 my %arg;&GetOptions('help|?'	=> \$arg{help},			# breif instructions
+		    'master_location=s'	=> \$arg{master_location}, # defaults to $ENV{"HOME"}."/gitblobs";
 		    'f=s'	=> \$arg{gitmeta},		# meta filename
+		    'group=s'	=> \$arg{group},		# which groupname do all developers belong to
+		    'l=s'	=> \$arg{l},			# expects the name of this program. Use "." to use the `pwd`/$0
 		    'save'	=> \$arg{save},
 		    'restore'	=> \$arg{restore},
 		    'strict'	=> \$arg{strict},		# stop instead of assume
 		    'debug'	=> \$arg{debug},
 		    'setup'	=> \$arg{setup},
 		    'dryrun'	=> \$arg{dryrun},		# not full implimented!
-		    'l=s'	=> \$arg{l},
 		    'newgit'	=> \$arg{newgit},
 	   ) or &pod2usage(2); 
 no warnings;
@@ -123,8 +233,11 @@ use warnings;
 $arg{gitmeta}=".git-meta" unless($arg{gitmeta});
 $arg{dryrun}=$ENV{'DRYRUN'} unless($arg{dryrun});		# debugging - set the switch or env var to 1 if you want to print, but not execute, the commands
 my $dryrun=$arg{dryrun};
+if($arg{l} eq '.') {
+  $arg{l}=$0; $arg{l}=`pwd` . "/$0" unless($arg{l}=~/^\//);
+}
 
-
+#die "$0: " . join("^",%arg) . "\t" . join("^",@ARGV);
 # Change the personality of this program, depending on what name $0 it has:
 if($0=~/pre-commit/) {
   $arg{save}=1;
@@ -155,8 +268,14 @@ if($arg{newgit}) {
   
   # newgit settings
   
-  my $master_location=$ENV{"HOME"}."/gitblobs"; # Change this to whatever default folder you want to use for storing master copies of files
+  my $master_location=$arg{master_location} ? $arg{master_location} : $ENV{"HOME"}."/gitblobs"; # Change this to whatever default folder you want to use for storing master copies of files
+  $master_location=glob($master_location);
+  chop $master_location if($master_location=~/\/$/);
   &do("mkdir -p $master_location") unless(-d $master_location);
+  &do("sudo chgrp $arg{group} $master_location") if($arg{group});
+  &do("chmod g+x $master_location"); # let other people in our group write into this
+  &do("chmod g+s $master_location"); # default to allow above on new files
+  &do("sudo setfacl -d -m g::rwx $master_location");	# Assumes: zfs set acltype=posixacl your_dataset_name; zfs set xattr=sa your_dataset_name # on zfs
   
   my $gitprog=''; open(IN,'<',$0) or die "Could not open file '$0' $!";
   $gitprog.=$_ while(<IN>);
@@ -165,40 +284,83 @@ if($arg{newgit}) {
   
   $ARGV[0]='-' unless($ARGV[0]); # see next
   foreach(@ARGV){die "Usage:\t$0 gitname [optional-auto-extract-location]" if(/^-/);} # stop if they're confused
-  my $gitblob=$ARGV[0]; $gitblob="$master_location/$ARGV[0]" unless($ARGV[0]=~/\//);
+  foreach(keys(%arg)){die "Usage:\t$0 gitname [optional-auto-extract-location]" if(defined($arg{$_}) && $arg{$_}=~/^-/);} # stop if they're confused
+  my $gitblob=glob($ARGV[0]); $gitblob="$master_location/$ARGV[0]" unless($ARGV[0]=~/\//);
   die "Sorry, $gitblob exists" if(-e $gitblob);
-  my $gitnamee=$ARGV[0]=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/rg;
-  my $gitblobe=$gitblob=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/rg;	# shell-escape for dummies who use spaces in filenames
-  my $workblob=$ARGV[0];
-  my $workblobe=$ARGV[0]=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/rg;
-  my $target=$ARGV[1] if($ARGV[1]);
-  my $targete=$ARGV[1]=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/rg if($ARGV[1]);
-  my $pwd=`pwd`=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\t ])/\\$1/rg;chomp($pwd);
+  my $gitnamee=glob($ARGV[0]); $gitnamee=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;
+  my $gitblobe=$gitblob; $gitblobe=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;	# shell-escape for dummies who use spaces in filenames
+  my $workblob=glob($ARGV[0]);
+  my $workblobe=glob($ARGV[0]); $workblobe=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;
+  my $target=glob($ARGV[1]) if($ARGV[1]);
+  chop $target if($target=~/\/$/);
+  my $targete=glob($ARGV[1]); $targete=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g if($ARGV[1]);
+  my $pwd=`pwd`; $pwd=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\t ])/\\$1/g;chomp($pwd);
   
   $workblobe="$pwd/$workblobe" unless($workblobe=~/^\//);
   $targete="$pwd/$targete" unless(!$target || $targete=~/^\//);
-  
+
+  die "no master location specified" unless($gitblobe);
+  die "no work blob specified" unless($workblobe);
+  die "no target specified" unless($targete);
+  die "cannot determin pwd" unless($pwd);
+
+
+
   &msg("# Create the master location");
-  &do("mkdir -p $gitblobe");	# ~/Downloads/gitblobs/foo
+  &do("mkdir -p $gitblobe");	# ~/gitblobs/foo
+  &do("chgrp $arg{group} $gitblobe") if($arg{group});
+  &do("chmod g+x $gitblobe"); # let other people in our group write into this
+  &do("chmod g+s $gitblobe"); # default to allow above on new files
+  &do("setfacl -d -m g::rwx $gitblobe");
+
   &do("cd $gitblobe;git init --bare;cd $pwd");
   
+
+  &msg("# Create one initial working folder");
+  #&do("mkdir -p $workblobe") if($workblobe);	# ./foo
+  &do("git clone $gitblobe $workblobe");
+  #&do("cd $workblobe;git clone $gitblobe; git config push.default current; cd $pwd");
+  &do("chgrp $arg{group} $workblobe") if($arg{group});
+  &do("chmod g+x $workblobe"); # let other people in our group write into this
+  &do("chmod g+s $workblobe"); # default to allow above on new files
+  &do("setfacl -d -m g::rwx $workblobe");
+  &do("cd $workblobe;touch README.txt;git add README.txt;git commit -m Setup; git config push.default current; git push;cd $pwd");
+  #&do("cd $workblobe;mv $gitnamee/.git .;rmdir $gitnamee;cd $pwd");
+  unless($ENV{'SCREW_UP_DATES'}) {
+    &msg("# Setting up '$workblob' to preserve dates");
+    # unless($gitprog) { push $gitprog.=$_ while (<DATA>); } # Reads from the end of this file
+    my(@pfn)=&preserve_dates($workblob,$hookfolder,$gitprog);
+    print($blu."If doing \"git clone\" in other machines later, remember to copy the following files into your new location .git/hooks/ folder too:\n\t".join("\n\t",@pfn)."$norm\n");
+  }
+
+
   # Set up auto-extract if wanted
   if($targete) {
     &msg("# Set up auto-extract into $targete");
-    my $targetee=$targete=~s/\\/\\\\/rg;
+    my $targetee=$targete; $targetee=~s/\\/\\\\/g;
     if(!-e $targete){
-      &do("mkdir -p $targete") unless(-e $target);
+      # &do("mkdir -p $targete") unless(-e $target);
     } else {
       print $red."Caution: '$target' exists: files in here will be overwritten by future 'git push' operations$norm\n";
     }
+    &do("git clone $gitblobe $targete");
+    #env -u GIT_DIR git -C $targetee pull || exit
+    my $fixgrp=''; $fixgrp="chgrp -R $arg{group} . 2>/dev/null\n" if($arg{group});
     &do("cd $gitblobe/hooks/;cat >post-update <<\\EOF
 #!/bin/bash
-printf \"post-update: running...\\n\"
-env -u GIT_DIR git -C $targetee pull || exit
+printf \"post-update: running in $targetee...\\n\"
+pushd $targetee
+cd $gitblobe
+$fixgrp
+cd $targetee;env -u GIT_DIR git pull || exit
+$fixgrp
+popd
 printf \"post-update: ran ok $targetee\\n\"
 EOF");
     &do("cd $gitblobe/hooks/;chmod -c +x post-update;cd $pwd");
-    &do("cd $targete;git clone $gitblobe; mv $gitnamee/.git .;rmdir $gitnamee;cd $pwd");
+    #&do("cd $targete;git clone $gitblobe; git config pull.default current;cd $pwd");
+    &do("cd $targete; git config pull.default current;cd $pwd");
+    #&do("cd $targete;mv $gitnamee/.git .;rmdir $gitnamee;cd $pwd");
     &do("touch $targete/AUTOGENERATED_FOLDER-DOT_NOT_EDIT");
   
     unless($ENV{'SCREW_UP_DATES'}) {
@@ -208,19 +370,21 @@ EOF");
     }
     
   } # targete
+
   
-  &msg("# Create one initial working folder");
-  &do("mkdir -p $workblobe") if($workblobe);	# ./foo
-  &do("cd $workblobe;git clone $gitblobe; mv $gitnamee/.git .;rmdir $gitnamee;cd $pwd");
-  unless($ENV{'SCREW_UP_DATES'}) {
-    &msg("# Setting up '$workblob' to preserve dates");
-    # unless($gitprog) { push $gitprog.=$_ while (<DATA>); } # Reads from the end of this file
-    my(@pfn)=&preserve_dates($workblob,$hookfolder,$gitprog);
-    print($blu."If doing \"git clone\" in other machines later, remember to copy the following files into your new location .git/hooks/ folder too:\n\t".join("\n\t",@pfn)."$norm\n");
-  }
-  
-  
-  &msg("# Done! Try these next perhaps:\ncd $ARGV[0]\necho hello>index.html\ngit add index.html\ngit commit -m Initial_Commit\ngit push" . ( $target? "\ndir $target" : ""));
+  my $hostname=`hostname`;chomp($hostname);
+  &msg("$blu# Done! Try these next perhaps:$wht
+pushd $ARGV[0]
+echo hello > index.html
+git add index.html
+git commit -m Initial_Commit
+git push
+popd
+" . ( $target? "dir $target\n" : "") . "$blu# And on some other machine:-$wht
+git clone ssh://$hostname$gitblob
+cd $ARGV[0]
+git-meta.pl -setup " . ( $arg{'l'}? "-l .":"") . " 
+$blu# (always remember to \"git pull\" before changing things when you're using multiple machines!)$norm" );
   # Done!
   exit(0);
 } # newgit
@@ -438,7 +602,7 @@ sub RestoreMeta {
 
     my $nowfm=&MetaFile('nosave',$f);
     my $newfm=$meta[ $meta{ $f } ]; my $n;
-    my $qmf=$f=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/rg;        # shell-escape for dummies who use spaces in filenames
+    my $qmf=$f; $qmf=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;        # shell-escape for dummies who use spaces in filenames
 
     if ( join(',',@$nowfm) ne join(',',@$newfm) ) {
       # mode owner group mtime atime spare1 spare2 filename
@@ -536,7 +700,7 @@ sub preserve_dates {
 	#git add .git-meta
 	# echo "Done. Meta has been preserved!"
 
-  my $precommite=$precommit=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/rg;
+  my $precommite=$precommit; $precommite=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;
   &do("chmod ugo+x $precommite");
 
 
@@ -551,9 +715,19 @@ sub preserve_dates {
 	#bash .git/hooks/git-meta -r
 	#echo "Done. Meta has been restored!"
 
-  my $postmergee=$postmerge=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/rg;
+  my $postmergee=$postmerge; $postmergee=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;
   &do("chmod ugo+x $postmergee");
 
   return($precommit,$postmerge);
 } # preserve_dates
 
+
+=for spare
+
+git-meta.pl - solution for preserving all the correct file dates, times, ownership, and access permissions in git, and feature to prepare new git projects using your own machines (instead of a cloud or github)
+
+Note-to-self: remember to do this before push:-
+
+	pod2markdown git-meta.pl README.md 
+
+=cut
