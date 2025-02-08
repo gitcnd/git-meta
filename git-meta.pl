@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 
-our $VERSION='0.20250108';	# Please use format: major_revision.YYYYMMDD[hh24mi]
+our $VERSION='0.20250109';	# Please use format: major_revision.YYYYMMDD[hh24mi]
 
 =head1 git-meta
 
@@ -89,7 +89,7 @@ create a brand-new local project
 
 =head3 How Mode 1 works:
 
-A git pre-commit hook is added, which creats the file ".git-meta" in your project and adds this to your commit.  
+A git pre-commit hook is added, which creates the file ".git-meta" in your project and adds this to your commit.  
 .git-meta contains all the real file metadata in your project (correct dates and times, ownerships, permissions, etc)
 
 A git post-merge hook is added, which restores all the correct information from the .git-meta file
@@ -142,6 +142,7 @@ be sure to run that `git-meta.pl -setup -l .` command: "git clone" does not auto
 	-newgit		# creates a working 3-folder shared dev environment for production web (or other) server site
 	-master_location# Where to store the master filess (defaults to ~/gitblobs/)
 	-group		# which groupname do all developers belong to
+	-autopush	# adds a post-commit hook that automatically does a "git push" every time you commit. (only works for the -setup command)
 	-debug		# print everything going on
 
 =head2 .git-meta file format
@@ -186,6 +187,18 @@ git-meta.pl -newgit
 	DRYRUN=1 SCREW_UP_DATES=1 newgit.pl gitname [optional-auto-extract-location]
 	# same as either of the above two, but doing nothing (shows what commands will be executed)
 
+=head2 Linux
+
+	Works natively
+
+=head2 Windows
+
+	If this code is run inside Windows, it re-launches itself inside WSL to do its work.
+
+=head2 Mac
+
+	Not tested
+
 =head2 Example
 
 	newgit.pl leoweb ~/leo/public_html
@@ -207,6 +220,7 @@ use Time::HiRes;	# Getting file microseconds
 #use Getopt::Long qw(:config require_order);	# Commandline argument parsing
 use Getopt::Long;	# Commandline argument parsing
 use Pod::Usage;		# Inbuilt documentation helper
+#use Cwd;
 my %gitignore;		# global
 my %names;my $i=0;$names{$_}=$i++ foreach(qw(mode owner group mtime atime spare1 spare2 filename));
 
@@ -219,12 +233,14 @@ my %arg;&GetOptions('help|?'	=> \$arg{help},			# breif instructions
 		    'f=s'	=> \$arg{gitmeta},		# meta filename
 		    'group=s'	=> \$arg{group},		# which groupname do all developers belong to
 		    'l=s'	=> \$arg{l},			# expects the name of this program. Use "." to use the `pwd`/$0
+		    'c=s'	=> \$arg{c},			# "cd" into this folder first
 		    'save'	=> \$arg{save},
 		    'restore'	=> \$arg{restore},
+		    'autopush'	=> \$arg{autopush},
 		    'strict'	=> \$arg{strict},		# stop instead of assume
 		    'debug'	=> \$arg{debug},
 		    'setup'	=> \$arg{setup},
-		    'dryrun'	=> \$arg{dryrun},		# not full implimented!
+		    'dryrun'	=> \$arg{dryrun},		# not fully implemented!
 		    'newgit'	=> \$arg{newgit},
 	   ) or &pod2usage(2); 
 no warnings;
@@ -233,7 +249,45 @@ use warnings;
 $arg{gitmeta}=".git-meta" unless($arg{gitmeta});
 $arg{dryrun}=$ENV{'DRYRUN'} unless($arg{dryrun});		# debugging - set the switch or env var to 1 if you want to print, but not execute, the commands
 my $dryrun=$arg{dryrun};
-if($arg{l} eq '.') {
+$arg{c}=1 unless($arg{c});
+
+sub d2l {
+  my($dospath)=@_;			# C:\Users\cnd\Downloads\mygit.pl
+  $dospath=~s/\\/\//g;              	# C:/Users/cnd/Downloads/mygit.pl
+  $dospath=~s/^(\w):/\L\/mnt\/$1/;	# /mnt/c/Users/cnd/Downloads/mygit.pl
+  $dospath=~s/'/'"'"'/g;		# handle Folder's insanity (gets wrapped in 'apos' later you see...)
+  $dospath=~s/\$/\\\\\\\$/g;		# Windows requires 3 \ in front of all $ to stop bash interpreting them
+  return $dospath; # now a WSL linux path :-)
+} # d2l
+
+
+die "infinte recursive loop detected: $^O $0 " . getcwd() . " c=$arg{c}" if($arg{c}>3); # prevent loop
+
+#	$^O	eq 'MSWin32'	$os eq 'darwin'		$os eq 'linux'
+if($^O eq 'MSWin32') { # Make this code work on windows too (if WSL exists)
+  # die "This code ($0 " . join(" ",@ARGV) . ") is not $^O compatible, sorry." 
+  my $pwd =&d2l( getcwd() );
+  my $pgm=&d2l($0);
+  my @ac=@ARGV;
+  foreach (@ac) { &d2l($_) if /^\w:/ }
+  
+  # $pgm = "$pwd/$pgm" unless($pgm=~/^\//); # figure out full path
+
+  print "Re-running '$pgm' in folder '$pwd' under WSL (this code is not compatible with $^O)\n";
+  # system('bash.exe','-c','pwd;echo pwd'); system('bash.exe','-c','ls -a;echo ls'); system('bash.exe','-c','echo env;env'); system('bash.exe','-c','echo set;set'); system('bash.exe','-c','echo whoami;whoami');
+
+
+  my $rc=system('C:\Windows\system32\wsl.exe','-e','perl',$pgm,'-c',$arg{c}+1); # pushd/popd missing...
+  my $ec=$?>>8;
+  print "Ran. rc=$rc ec=$ec\n";
+  #system('bash.exe','-c',"perl $pgm -c 2"); # pushd/popd missing...
+  #system('bash.exe','-c','export GHERE=`pwd`;' . "cd '$pwd'; '$pgm'; " . 'cd $GHERE'); # pushd/popd missing...
+  exit(0); # die "This code ($0 " . join(" ",@ac) . ") in $pwd is not $^O compatible, sorry." # This code (.git/hooks/pre-commit ) in /mnt/c//Users/cnd/Downloads/cursor/voicetype is not MSWin32 compatible, sorry. at .git/hooks/pre-commit line 256.
+} else {
+  print "Running '$0' under $^O in folder: ".`pwd`;
+}
+
+if($arg{l} && $arg{l} eq '.') {
   $arg{l}=$0; $arg{l}=`pwd` . "/$0" unless($arg{l}=~/^\//);
 }
 
@@ -348,11 +402,11 @@ if($arg{newgit}) {
     my $fixgrp=''; $fixgrp="chgrp -R $arg{group} . 2>/dev/null\n" if($arg{group});
     &do("cd $gitblobe/hooks/;cat >post-update <<\\EOF
 #!/bin/bash
-printf \"post-update: running in $targetee...\\n\"
+printf \"post-update ($gitblobe/hooks/post-update): running in $targetee...\\n\"
 pushd $targetee
 cd $gitblobe
 $fixgrp
-cd $targetee;env -u GIT_DIR git pull || exit
+cd $targetee;env -u GIT_DIR git reset --hard; env -u GIT_DIR git pull || exit
 $fixgrp
 popd
 printf \"post-update: ran ok $targetee\\n\"
@@ -409,6 +463,19 @@ if($arg{setup}) {
   $gitprog.=$_ while(<IN>);
   close(IN); # Reads in ourself - for git-meta.pl to use
   &preserve_dates('.',$hookfolder,$gitprog);
+
+  if($arg{autopush}) {
+    my $postcommit="$hookfolder/post-commit";
+    if(-e $postcommit) {
+      print $yel."Caution: moved existing $postcommit to $postcommit.save$norm\n";
+      rename($postcommit,"$postcommit.save") unless($dryrun);
+    }
+    unless($dryrun) {
+      open(OUT,'>',$postcommit) or warn "$postcommit: $!";
+      print OUT "#!/bin/sh\n# Automatically push to the current branch after a commit\ngit push\n";
+      close(OUT);
+    }
+  }
   
   exit(0);
 }

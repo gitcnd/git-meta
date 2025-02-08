@@ -48,7 +48,7 @@ or
 
 ### How Mode 1 works:
 
-A git pre-commit hook is added, which creats the file ".git-meta" in your project and adds this to your commit.  
+A git pre-commit hook is added, which creates the file ".git-meta" in your project and adds this to your commit.  
 .git-meta contains all the real file metadata in your project (correct dates and times, ownerships, permissions, etc)
 
 A git post-merge hook is added, which restores all the correct information from the .git-meta file
@@ -97,6 +97,7 @@ be sure to run that \`git-meta.pl -setup -l .\` command: "git clone" does not au
         -newgit         # creates a working 3-folder shared dev environment for production web (or other) server site
         -master_location# Where to store the master filess (defaults to ~/gitblobs/)
         -group          # which groupname do all developers belong to
+        -autopush       # adds a post-commit hook that automatically does a "git push" every time you commit. (only works for the -setup command)
         -debug          # print everything going on
 
 ## .git-meta file format
@@ -128,6 +129,18 @@ git-meta.pl -newgit
         DRYRUN=1 SCREW_UP_DATES=1 newgit.pl gitname [optional-auto-extract-location]
         # same as either of the above two, but doing nothing (shows what commands will be executed)
 
+## Linux
+
+        Works natively
+
+## Windows
+
+        If this code is run inside Windows, it re-launches itself inside WSL to do its work.
+
+## Mac
+
+        Not tested
+
 ## Example
 
         newgit.pl leoweb ~/leo/public_html
@@ -137,3 +150,7 @@ git-meta.pl -newgit
         if there's no "/" within "gitname", it will put the files into $master_location/gitname (e.g. ~/gitblobs/gitname ) by default
 
 git-meta.pl - solution for preserving all the correct file dates, times, ownership, and access permissions in git, and feature to prepare new git projects using your own machines (instead of a cloud or github)
+
+Note-to-self: remember to do this before push:-
+
+        pod2markdown git-meta.pl README.md 
