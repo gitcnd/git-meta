@@ -219,7 +219,7 @@ use POSIX;		# for strftime
 use Time::HiRes;	# Getting file microseconds
 #use Getopt::Long qw(:config require_order);	# Commandline argument parsing
 use Getopt::Long;	# Commandline argument parsing
-use Pod::Usage;		# Inbuilt documentation helper
+#use Pod::Usage;		# Inbuilt documentation helper
 #use Cwd;
 my %gitignore;		# global
 my %names;my $i=0;$names{$_}=$i++ foreach(qw(mode owner group mtime atime spare1 spare2 filename));
@@ -259,6 +259,27 @@ sub d2l {
   $dospath=~s/\$/\\\\\\\$/g;		# Windows requires 3 \ in front of all $ to stop bash interpreting them
   return $dospath; # now a WSL linux path :-)
 } # d2l
+sub shellsafe { # make filenames with ugly's spaces and mess! work inside bash 'apos'
+  my($fn)=@_;
+  $fn=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;
+  return $fn;
+} # shellsafe
+sub pod2usage { # standard perls do not always have access to Pod::Usage
+  my($ec)=@_;
+  if($ec==1) {
+    my $in_pod = 0;
+    open my $fh, '<', $0 or die "Can't open file: $!";  # Open the script itself
+    while (<$fh>) {
+      last if /^__END__/;
+      $in_pod = 1 if (/^=(pod|head\d|over|item|back|begin|for|end)/);
+      print if $in_pod;
+      $in_pod = 0 if (/^=cut/);
+    }
+    close $fh;
+  } # #1
+  #print "$ec: $!";
+  exit($_[0]);
+} # pod2usage
 
 
 die "infinte recursive loop detected: $^O $0 " . getcwd() . " c=$arg{c}" if($arg{c}>3); # prevent loop
@@ -341,14 +362,14 @@ if($arg{newgit}) {
   foreach(keys(%arg)){die "Usage:\t$0 gitname [optional-auto-extract-location]" if(defined($arg{$_}) && $arg{$_}=~/^-/);} # stop if they're confused
   my $gitblob=glob($ARGV[0]); $gitblob="$master_location/$ARGV[0]" unless($ARGV[0]=~/\//);
   die "Sorry, $gitblob exists" if(-e $gitblob);
-  my $gitnamee=glob($ARGV[0]); $gitnamee=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;
-  my $gitblobe=$gitblob; $gitblobe=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;	# shell-escape for dummies who use spaces in filenames
+  my $gitnamee=&shellsafe(glob($ARGV[0])); # $gitnamee=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;
+  my $gitblobe=&shellsafe($gitblob); # $gitblobe=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;	# shell-escape for dummies who use spaces in filenames
   my $workblob=glob($ARGV[0]);
-  my $workblobe=glob($ARGV[0]); $workblobe=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;
+  my $workblobe=&shellsafe(glob($ARGV[0])); # $workblobe=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;
   my $target=glob($ARGV[1]) if($ARGV[1]);
   chop $target if($target=~/\/$/);
-  my $targete=glob($ARGV[1]); $targete=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g if($ARGV[1]);
-  my $pwd=`pwd`; $pwd=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\t ])/\\$1/g;chomp($pwd);
+  my $targete=&shellsafe(glob($ARGV[1])); # $targete=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g if($ARGV[1]);
+  my $pwd=&shellsafe(`pwd`); chomp($pwd); # $pwd=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\t ])/\\$1/g;chomp($pwd);
   
   $workblobe="$pwd/$workblobe" unless($workblobe=~/^\//);
   $targete="$pwd/$targete" unless(!$target || $targete=~/^\//);
@@ -474,6 +495,8 @@ if($arg{setup}) {
       open(OUT,'>',$postcommit) or warn "$postcommit: $!";
       print OUT "#!/bin/sh\n# Automatically push to the current branch after a commit\ngit push\n";
       close(OUT);
+      my $postcommite=&shellsafe($postcommit); # $postcommite=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;
+      &do("chmod ugo+x $postcommite");
     }
   }
   
@@ -669,7 +692,7 @@ sub RestoreMeta {
 
     my $nowfm=&MetaFile('nosave',$f);
     my $newfm=$meta[ $meta{ $f } ]; my $n;
-    my $qmf=$f; $qmf=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;        # shell-escape for dummies who use spaces in filenames
+    my $qmf=&shellsafe($f); # $qmf=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;        # shell-escape for dummies who use spaces in filenames
 
     if ( join(',',@$nowfm) ne join(',',@$newfm) ) {
       # mode owner group mtime atime spare1 spare2 filename
@@ -767,7 +790,7 @@ sub preserve_dates {
 	#git add .git-meta
 	# echo "Done. Meta has been preserved!"
 
-  my $precommite=$precommit; $precommite=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;
+  my $precommite=&shellsafe($precommit); # $precommite=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;
   &do("chmod ugo+x $precommite");
 
 
@@ -782,7 +805,7 @@ sub preserve_dates {
 	#bash .git/hooks/git-meta -r
 	#echo "Done. Meta has been restored!"
 
-  my $postmergee=$postmerge; $postmergee=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;
+  my $postmergee=&shellsafe($postmerge); # $postmergee=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;
   &do("chmod ugo+x $postmergee");
 
   return($precommit,$postmerge);
