@@ -266,7 +266,7 @@ sub shellsafe { # make filenames with ugly's spaces and mess! work inside bash '
 } # shellsafe
 sub pod2usage { # standard perls do not always have access to Pod::Usage
   my($ec)=@_;
-  if($ec==1) {
+  if($ec) {
     my $in_pod = 0;
     open my $fh, '<', $0 or die "Can't open file: $!";  # Open the script itself
     while (<$fh>) {
