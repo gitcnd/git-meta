@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 
-our $VERSION='0.20250109';	# Please use format: major_revision.YYYYMMDD[hh24mi]
+our $VERSION='0.20250110';	# Please use format: major_revision.YYYYMMDD[hh24mi]
 
 =head1 git-meta
 
@@ -226,6 +226,7 @@ my %names;my $i=0;$names{$_}=$i++ foreach(qw(mode owner group mtime atime spare1
 
 my $is_tty_out = (!-f STDOUT) && ( -t STDOUT && -c STDOUT);	# -f is a file, -t is a terminal, -c is a character device
 my ($norm,$red,$grn,$yel,$nav,$blu,$save,$rest,$clr,$prp,$wht)=!$is_tty_out ? ('','','','','','','','','','','') : ("\033[0m","\033[31;1m","\033[32;1m","\033[33;1m","\033[34;1m","\033[36;1m","\033[s","\033[u","\033[K","\033[35;1m","\033[37;1m"); # so we can print colour output if we want.
+my(@oriargs)=@ARGV;
 
 
 my %arg;&GetOptions('help|?'	=> \$arg{help},			# breif instructions
@@ -252,15 +253,20 @@ my $dryrun=$arg{dryrun};
 $arg{c}=1 unless($arg{c});
 
 sub d2l {
-  my($dospath)=@_;			# C:\Users\cnd\Downloads\mygit.pl
-  $dospath=~s/\\/\//g;              	# C:/Users/cnd/Downloads/mygit.pl
-  $dospath=~s/^(\w):/\L\/mnt\/$1/;	# /mnt/c/Users/cnd/Downloads/mygit.pl
-  $dospath=~s/'/'"'"'/g;		# handle Folder's insanity (gets wrapped in 'apos' later you see...)
-  $dospath=~s/\$/\\\\\\\$/g;		# Windows requires 3 \ in front of all $ to stop bash interpreting them
-  return $dospath; # now a WSL linux path :-)
+  #my($dospath)=@_;			# C:\Users\cnd\Downloads\mygit.pl
+  $_[0]=~s/\\/\//g;              	# C:/Users/cnd/Downloads/mygit.pl
+  $_[0]=~s/^(\w):/\L\/mnt\/$1/;	# /mnt/c/Users/cnd/Downloads/mygit.pl
+  $_[0]=~s/'/'"'"'/g;		# handle Folder's insanity (gets wrapped in 'apos' later you see...)
+  $_[0]=~s/\$/\\\\\\\$/g;		# Windows requires 3 \ in front of all $ to stop bash interpreting them
+  return $_[0]; # now a WSL linux path :-)
 } # d2l
+sub chompnl {# chomp() on unix doesn't eat "\r"...
+  chop $_[0] while((substr($_[0],-1) eq "\015")||(substr($_[0],-1) eq "\012"));
+} # chompnl
+
 sub shellsafe { # make filenames with ugly's spaces and mess! work inside bash 'apos'
   my($fn)=@_;
+  &chompnl($fn);
   $fn=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;
   return $fn;
 } # shellsafe
@@ -289,16 +295,23 @@ if($^O eq 'MSWin32') { # Make this code work on windows too (if WSL exists)
   # die "This code ($0 " . join(" ",@ARGV) . ") is not $^O compatible, sorry." 
   my $pwd =&d2l( getcwd() );
   my $pgm=&d2l($0);
-  my @ac=@ARGV;
-  foreach (@ac) { &d2l($_) if /^\w:/ }
+  my @ac=@oriargs; # @ARGV;
+  foreach (@ac) { &d2l($_) if /^(\w):/ }
   
   # $pgm = "$pwd/$pgm" unless($pgm=~/^\//); # figure out full path
 
   print "Re-running '$pgm' in folder '$pwd' under WSL (this code is not compatible with $^O)\n";
   # system('bash.exe','-c','pwd;echo pwd'); system('bash.exe','-c','ls -a;echo ls'); system('bash.exe','-c','echo env;env'); system('bash.exe','-c','echo set;set'); system('bash.exe','-c','echo whoami;whoami');
 
+  #my @lnxarg=('C:\Windows\system32\wsl.exe','-e','perl',$pgm,'-c',$arg{c}+1);
+  my @lnxarg=('C:\Windows\system32\wsl.exe','-e','perl',$pgm);
+  push @lnxarg,@ac;
 
-  my $rc=system('C:\Windows\system32\wsl.exe','-e','perl',$pgm,'-c',$arg{c}+1); # pushd/popd missing...
+  #die join("^",@lnxarg);
+  # push @lnxarg,'-setup' if($arg{setup});
+  # push @lnxarg,'-autopush' if($arg{autopush});
+  my $rc=system( @lnxarg );
+  #my $rc=system('C:\Windows\system32\wsl.exe','-e','perl',$pgm,'-c',$arg{c}+1); # pushd/popd missing...
   my $ec=$?>>8;
   print "Ran. rc=$rc ec=$ec\n";
   #system('bash.exe','-c',"perl $pgm -c 2"); # pushd/popd missing...
@@ -376,7 +389,7 @@ if($arg{newgit}) {
 
   die "no master location specified" unless($gitblobe);
   die "no work blob specified" unless($workblobe);
-  die "no target specified" unless($targete);
+  #die "no target specified" unless($targete);
   die "cannot determin pwd" unless($pwd);
 
 
@@ -458,7 +471,7 @@ popd
 " . ( $target? "dir $target\n" : "") . "$blu# And on some other machine:-$wht
 git clone ssh://$hostname$gitblob
 cd $ARGV[0]
-git-meta.pl -setup " . ( $arg{'l'}? "-l .":"") . " 
+git-meta.pl -setup " . ( $arg{'l'}? "-l . ":"") . ( $arg{'autopush'}? "-autopush ":"") . "
 $blu# (always remember to \"git pull\" before changing things when you're using multiple machines!)$norm" );
   # Done!
   exit(0);
@@ -819,5 +832,6 @@ git-meta.pl - solution for preserving all the correct file dates, times, ownersh
 Note-to-self: remember to do this before push:-
 
 	pod2markdown git-meta.pl README.md 
+
 
 =cut
