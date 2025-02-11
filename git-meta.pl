@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 
-our $VERSION='0.20250110';	# Please use format: major_revision.YYYYMMDD[hh24mi]
+our $VERSION='0.20250111';	# Please use format: major_revision.YYYYMMDD[hh24mi]
 
 =head1 git-meta
 
@@ -70,7 +70,7 @@ create a brand-new local project
 
 =head2 Mode 1 - preserving dates/times/ownership/permissions etc:
 
-	# creates the pre-commit and post-merge hooks (see below)
+	# creates the pre-commit and post-checkout hooks (see below)
 	cd ~/myrepo
 	git-meta.pl -setup -l /usr/local/bin/git-meta.pl
 	-or-
@@ -82,7 +82,7 @@ create a brand-new local project
 	git-meta.pl -save [optional list of files]
 
 
-	# optional manual "restore" usage (Typically called from post-merge)
+	# optional manual "restore" usage (Typically called from post-checkout)
 	cd ~/myrepo
 	git-meta.pl -restore [optional list of files]
 
@@ -92,7 +92,7 @@ create a brand-new local project
 A git pre-commit hook is added, which creates the file ".git-meta" in your project and adds this to your commit.  
 .git-meta contains all the real file metadata in your project (correct dates and times, ownerships, permissions, etc)
 
-A git post-merge hook is added, which restores all the correct information from the .git-meta file
+A git post-checkout hook is added, which restores all the correct information from the .git-meta file
 
 
 
@@ -135,10 +135,10 @@ be sure to run that `git-meta.pl -setup -l .` command: "git clone" does not auto
 	-f		# Specify the meta filename to use ( defaults to .git-meta )
 	-save		# Save into the .git-meta. Saves all files if none are provided
 	-restore	# Restore from the .git-meta. Restores all files if none are provided
-	-setup		# create the necessary pre-commit and post-merge files to activate this solution in your repo
+	-setup		# create the necessary pre-commit and post-checkout files to activate this solution in your repo
 	-strict		# Stop with errors instead of assume what the user wants (partially implimented)
 	-dryrun		# Show what would be done, without doing it (partially implimented)
-	-l		# use a symlink when doing setup, for pre-commit and post-merge (e.g. -l /usr/local/bin/git-meta.pl) - otherwise - copies the file there.
+	-l		# use a symlink when doing setup, for pre-commit and post-checkout (e.g. -l /usr/local/bin/git-meta.pl) - otherwise - copies the file there.
 	-newgit		# creates a working 3-folder shared dev environment for production web (or other) server site
 	-master_location# Where to store the master filess (defaults to ~/gitblobs/)
 	-group		# which groupname do all developers belong to
@@ -164,9 +164,10 @@ be sure to run that `git-meta.pl -setup -l .` command: "git clone" does not auto
 
 =head1 FILENAMES
 
-.git/hooks/pre-commit	- this same perl script, when it has the name "pre-commit" assumes you're running "git-meta.pl -save"
-.git/hooks/post-merge	- this same perl script, when it has the name "post-merge" assumes you're running "git-meta.pl -restore"
-newgit.pl		- this same perl script, when it has the name "newgit.pl", behaves as if the -newgit option was supplied - see below.
+.git/hooks/pre-commit     - this same perl script, when it has the name "pre-commit" assumes you're running "git-meta.pl -save"
+.git/hooks/post-checkout  - this same perl script, when it has the name "post-checkout" assumes you're running "git-meta.pl -restore"
+.git/hooks/post-merge     - this same perl script, when it has the name "post-merge" assumes you're running "git-meta.pl -restore"
+newgit.pl                 - this same perl script, when it has the name "newgit.pl", behaves as if the -newgit option was supplied - see below.
 
 
 newgit.pl - create a new, optionally auto-extracting, private git repo, with preservation of file metadata (dates/time, permissions, ownership)
@@ -227,6 +228,10 @@ my %names;my $i=0;$names{$_}=$i++ foreach(qw(mode owner group mtime atime spare1
 my $is_tty_out = (!-f STDOUT) && ( -t STDOUT && -c STDOUT);	# -f is a file, -t is a terminal, -c is a character device
 my ($norm,$red,$grn,$yel,$nav,$blu,$save,$rest,$clr,$prp,$wht)=!$is_tty_out ? ('','','','','','','','','','','') : ("\033[0m","\033[31;1m","\033[32;1m","\033[33;1m","\033[34;1m","\033[36;1m","\033[s","\033[u","\033[K","\033[35;1m","\033[37;1m"); # so we can print colour output if we want.
 my(@oriargs)=@ARGV;
+my $gitprog=''; open(IN,'<',$0) or die "Could not open file '$0' $!";
+$gitprog.=$_ while(<IN>);
+close(IN); # Reads in ourself - for git-meta.pl to use
+my @pfn;
 
 
 my %arg;&GetOptions('help|?'	=> \$arg{help},			# breif instructions
@@ -337,9 +342,19 @@ if($0=~/pre-commit/) {
   @ARGV=@staged_files;
 }
 
+if($0=~/post-checkout/) {
+  $arg{restore}=1;
+  @ARGV='.'; # do/check everything
+}
+
 if($0=~/post-merge/) {
   $arg{restore}=1;
   @ARGV='.'; # do/check everything
+}
+
+if($0=~/post-commit/) {
+  &do("git push");
+  exit(0);
 }
 
 if($0=~/newgit/) {
@@ -365,9 +380,6 @@ if($arg{newgit}) {
   &do("chmod g+s $master_location"); # default to allow above on new files
   &do("sudo setfacl -d -m g::rwx $master_location");	# Assumes: zfs set acltype=posixacl your_dataset_name; zfs set xattr=sa your_dataset_name # on zfs
   
-  my $gitprog=''; open(IN,'<',$0) or die "Could not open file '$0' $!";
-  $gitprog.=$_ while(<IN>);
-  close(IN); # Reads in ourself - for git-meta.pl to use
   my $hookfolder='';
   
   $ARGV[0]='-' unless($ARGV[0]); # see next
@@ -417,9 +429,10 @@ if($arg{newgit}) {
   unless($ENV{'SCREW_UP_DATES'}) {
     &msg("# Setting up '$workblob' to preserve dates");
     # unless($gitprog) { push $gitprog.=$_ while (<DATA>); } # Reads from the end of this file
-    my(@pfn)=&preserve_dates($workblob,$hookfolder,$gitprog);
+    &preserve_dates($workblob,$hookfolder);
     print($blu."If doing \"git clone\" in other machines later, remember to copy the following files into your new location .git/hooks/ folder too:\n\t".join("\n\t",@pfn)."$norm\n");
   }
+  &BlockApache($hookfolder);
 
 
   # Set up auto-extract if wanted
@@ -450,11 +463,12 @@ EOF");
     &do("cd $targete; git config pull.default current;cd $pwd");
     #&do("cd $targete;mv $gitnamee/.git .;rmdir $gitnamee;cd $pwd");
     &do("touch $targete/AUTOGENERATED_FOLDER-DOT_NOT_EDIT");
+    &BlockApache("$targete/.git/hooks");
   
     unless($ENV{'SCREW_UP_DATES'}) {
       &msg("# Setting up '$target' to preserve dates");
       # unless($gitprog) { $gitprog.=$_ while (<DATA>); } # Reads from the end of this file
-      my(@pfn)=&preserve_dates($target,$hookfolder,$gitprog);
+      &preserve_dates($target,$hookfolder);
     }
     
   } # targete
@@ -491,26 +505,10 @@ if($arg{setup}) {
   $hookfolder='hooks' unless(-d $hookfolder);
   die "No hooks folder: must run this from inside your repo folder." unless(-d $hookfolder);
 
-  #my $gitprog=''; push $gitprog.=$_ while (<DATA>); # Reads from the end of this file - for newgit to use
-  # unless($gitprog) { push $gitprog.=$_ while (<DATA>); } # Reads from the end of this file
-  my $gitprog=''; open(IN,'<',$0) or die "Could not open file '$0' $!";
-  $gitprog.=$_ while(<IN>);
-  close(IN); # Reads in ourself - for git-meta.pl to use
-  &preserve_dates('.',$hookfolder,$gitprog);
+  &preserve_dates('.',$hookfolder);
 
   if($arg{autopush}) {
-    my $postcommit="$hookfolder/post-commit";
-    if(-e $postcommit) {
-      print $yel."Caution: moved existing $postcommit to $postcommit.save$norm\n";
-      rename($postcommit,"$postcommit.save") unless($dryrun);
-    }
-    unless($dryrun) {
-      open(OUT,'>',$postcommit) or warn "$postcommit: $!";
-      print OUT "#!/bin/sh\n# Automatically push to the current branch after a commit\ngit push\n";
-      close(OUT);
-      my $postcommite=&shellsafe($postcommit); # $postcommite=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;
-      &do("chmod ugo+x $postcommite");
-    }
+    &makehook("$hookfolder/post-commit");
   }
   
   exit(0);
@@ -554,7 +552,27 @@ sub GetIgnore {
   }
 } # GetIgnore
 
-
+sub BlockApache { # web-safety 1st.
+  my($hookfolder)=@_;
+  my $htaccess="$hookfolder/../.htaccess"; # Parent of hook folder
+  my $index="$hookfolder/../index.html"; # Parent of hook folder
+  if(-e $htaccess) {
+    print $yel."Caution: moved existing $htaccess to $htaccess.save$norm\n";
+    rename($htaccess,"$htaccess.save") unless($dryrun);
+  }
+  if(-e $index) {
+    print $yel."Caution: moved existing $index to $index.save$norm\n";
+    rename($index,"$index.save") unless($dryrun);
+  }
+  unless($dryrun) {
+    open(OUT,'>',$htaccess) or warn "$htaccess $!";
+    print OUT "<RequireAll>\n    Require all denied\n</RequireAll>\n";
+    close(OUT);
+    open(OUT,'>',$index) or warn "$index: $!";
+    print OUT "\n";
+    close(OUT);
+  }
+} # web-safety 1st.
 
 # Update @meta and %meta with metadata from a filesystem file or folder
 sub MetaFile {
@@ -761,33 +779,20 @@ sub do {
   print $yel.`$cmd`.$norm unless($dryrun);
 }
 
-# CAUTION!! This code in 3 places (inside newgit.pl, and ALSO inside git-meta.pl and in the the pre-commit and post-merge DATA sections of newgit.pl)
-sub preserve_dates {
-  my($base,$hookfolder,$gitprog)=@_;
+sub makehook {
+  my($fn)=@_;
 
-  $hookfolder="$base/hooks" unless($hookfolder && -d $hookfolder);
-  $hookfolder="$base/.git/hooks" unless(-d $hookfolder);
-  die "No hooks folder ($hookfolder from ".`pwd`."): must run this from inside your repo folder." unless(-d $hookfolder);
-
-  my $precommit="$hookfolder/pre-commit";	# $base/.git/hooks/pre-commit
-  my $postmerge="$hookfolder/post-merge";	# $base/.git/hooks/post-merge
-
-  # my $gitprog=''; push $gitprog.=$_ while (<DATA>); # Reads from the end of this file
   if(!$dryrun) {
-    if(-e $precommit) {
-      print $yel."Caution: moved existing $precommit to $precommit.save$norm\n";
-      rename($precommit,"$precommit.save");
-    }
-    if(-e $postmerge) {
-      print $yel."Caution: moved existing $postmerge to $postmerge.save$norm\n";
-      rename($postmerge,"$postmerge.save");
+    if(-e $fn) {
+      print $yel."Caution: moved existing $fn to $fn.save$norm\n";
+      rename($fn,"$fn.save");
     }
   }
 
   if($arg{l}) {
-    &do("ln -s $arg{l} $precommit");
+    &do("ln -s $arg{l} $fn");
   } else {
-    open(OUT,'>>',$dryrun ? '/dev/null' : $precommit) or die "Cannot create file '$precommit': $!";
+    open(OUT,'>>',$dryrun ? '/dev/null' : $fn) or die "Cannot create file '$fn': $!";
     print OUT $gitprog; close(OUT); 
   }
 
@@ -803,25 +808,24 @@ sub preserve_dates {
 	#git add .git-meta
 	# echo "Done. Meta has been preserved!"
 
-  my $precommite=&shellsafe($precommit); # $precommite=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;
-  &do("chmod ugo+x $precommite");
+  my $fne=&shellsafe($fn); # $fne=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;
+  &do("chmod ugo+x $fne");
+} # makehook
 
+# CAUTION!! This code in 3 places (inside newgit.pl, and ALSO inside git-meta.pl and in the the pre-commit and post-checkout DATA sections of newgit.pl)
+sub preserve_dates {
+  my($base,$hookfolder)=@_;
 
-  if($arg{l}) {
-    &do("ln -s $arg{l} $postmerge");
-  } else {
-    open(OUT,'>>',$dryrun ? '/dev/null' : $postmerge) or die "Cannot create file '$postmerge': $!";
-    print OUT $gitprog; close(OUT);
+  $hookfolder="$base/hooks" unless($hookfolder && -d $hookfolder);
+  $hookfolder="$base/.git/hooks" unless(-d $hookfolder);
+  die "No hooks folder ($hookfolder from ".`pwd`."): must run this from inside your repo folder." unless(-d $hookfolder);
+
+  foreach("$hookfolder/pre-commit", "$hookfolder/post-merge", "$hookfolder/post-checkout") {
+    &makehook($_);
+    push @pfn,$_;
   }
-	#q#!/bin/bash
-	#echo "Restoring files' timestamp, CID/hash; and other files/commit's metadata..."
-	#bash .git/hooks/git-meta -r
-	#echo "Done. Meta has been restored!"
+  &do("git config --local core.fileMode false"); # so future "pull" doesn't choke after the hook changed permissions.
 
-  my $postmergee=&shellsafe($postmerge); # $postmergee=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;
-  &do("chmod ugo+x $postmergee");
-
-  return($precommit,$postmerge);
 } # preserve_dates
 
 

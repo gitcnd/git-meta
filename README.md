@@ -30,7 +30,7 @@ or
 
 ## Mode 1 - preserving dates/times/ownership/permissions etc:
 
-        # creates the pre-commit and post-merge hooks (see below)
+        # creates the pre-commit and post-checkout hooks (see below)
         cd ~/myrepo
         git-meta.pl -setup -l /usr/local/bin/git-meta.pl
         -or-
@@ -42,7 +42,7 @@ or
         git-meta.pl -save [optional list of files]
 
 
-        # optional manual "restore" usage (Typically called from post-merge)
+        # optional manual "restore" usage (Typically called from post-checkout)
         cd ~/myrepo
         git-meta.pl -restore [optional list of files]
 
@@ -51,7 +51,7 @@ or
 A git pre-commit hook is added, which creates the file ".git-meta" in your project and adds this to your commit.  
 .git-meta contains all the real file metadata in your project (correct dates and times, ownerships, permissions, etc)
 
-A git post-merge hook is added, which restores all the correct information from the .git-meta file
+A git post-checkout hook is added, which restores all the correct information from the .git-meta file
 
 ## Mode 2 - Automatically set up a new full-featued non-cloud repo on your own machine/servers
 
@@ -90,10 +90,10 @@ be sure to run that \`git-meta.pl -setup -l .\` command: "git clone" does not au
         -f              # Specify the meta filename to use ( defaults to .git-meta )
         -save           # Save into the .git-meta. Saves all files if none are provided
         -restore        # Restore from the .git-meta. Restores all files if none are provided
-        -setup          # create the necessary pre-commit and post-merge files to activate this solution in your repo
+        -setup          # create the necessary pre-commit and post-checkout files to activate this solution in your repo
         -strict         # Stop with errors instead of assume what the user wants (partially implimented)
         -dryrun         # Show what would be done, without doing it (partially implimented)
-        -l              # use a symlink when doing setup, for pre-commit and post-merge (e.g. -l /usr/local/bin/git-meta.pl) - otherwise - copies the file there.
+        -l              # use a symlink when doing setup, for pre-commit and post-checkout (e.g. -l /usr/local/bin/git-meta.pl) - otherwise - copies the file there.
         -newgit         # creates a working 3-folder shared dev environment for production web (or other) server site
         -master_location# Where to store the master filess (defaults to ~/gitblobs/)
         -group          # which groupname do all developers belong to
@@ -107,9 +107,10 @@ be sure to run that \`git-meta.pl -setup -l .\` command: "git clone" does not au
 
 # FILENAMES
 
-.git/hooks/pre-commit	- this same perl script, when it has the name "pre-commit" assumes you're running "git-meta.pl -save"
-.git/hooks/post-merge	- this same perl script, when it has the name "post-merge" assumes you're running "git-meta.pl -restore"
-newgit.pl		- this same perl script, when it has the name "newgit.pl", behaves as if the -newgit option was supplied - see below.
+.git/hooks/pre-commit     - this same perl script, when it has the name "pre-commit" assumes you're running "git-meta.pl -save"
+.git/hooks/post-checkout  - this same perl script, when it has the name "post-checkout" assumes you're running "git-meta.pl -restore"
+.git/hooks/post-merge     - this same perl script, when it has the name "post-merge" assumes you're running "git-meta.pl -restore"
+newgit.pl                 - this same perl script, when it has the name "newgit.pl", behaves as if the -newgit option was supplied - see below.
 
 newgit.pl - create a new, optionally auto-extracting, private git repo, with preservation of file metadata (dates/time, permissions, ownership)
  -or-
