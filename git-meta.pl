@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 
-our $VERSION='0.20250111';	# Please use format: major_revision.YYYYMMDD[hh24mi]
+our $VERSION='0.20250112';	# Please use format: major_revision.YYYYMMDD[hh24mi]
 
 =head1 git-meta
 
@@ -222,6 +222,8 @@ use Time::HiRes;	# Getting file microseconds
 use Getopt::Long;	# Commandline argument parsing
 #use Pod::Usage;		# Inbuilt documentation helper
 #use Cwd;
+require Cwd;
+Cwd->import() unless(defined &main::getcwd);  # Manually call import() to load functions like getcwd (which other modules might have done before; getcwd is not well behaved)
 my %gitignore;		# global
 my %names;my $i=0;$names{$_}=$i++ foreach(qw(mode owner group mtime atime spare1 spare2 filename));
 
@@ -232,7 +234,7 @@ my $gitprog=''; open(IN,'<',$0) or die "Could not open file '$0' $!";
 $gitprog.=$_ while(<IN>);
 close(IN); # Reads in ourself - for git-meta.pl to use
 my @pfn;
-
+my $pprint = "$blu# Created with https://github.com/gitcnd/git-meta.git v$VERSION command:-$norm\n\n$0 " . join(" ",@ARGV) . "\n$norm\n";
 
 my %arg;&GetOptions('help|?'	=> \$arg{help},			# breif instructions
 		    'master_location=s'	=> \$arg{master_location}, # defaults to $ENV{"HOME"}."/gitblobs";
@@ -380,8 +382,6 @@ if($arg{newgit}) {
   &do("chmod g+s $master_location"); # default to allow above on new files
   &do("sudo setfacl -d -m g::rwx $master_location");	# Assumes: zfs set acltype=posixacl your_dataset_name; zfs set xattr=sa your_dataset_name # on zfs
   
-  my $hookfolder='';
-  
   $ARGV[0]='-' unless($ARGV[0]); # see next
   foreach(@ARGV){die "Usage:\t$0 gitname [optional-auto-extract-location]" if(/^-/);} # stop if they're confused
   foreach(keys(%arg)){die "Usage:\t$0 gitname [optional-auto-extract-location]" if(defined($arg{$_}) && $arg{$_}=~/^-/);} # stop if they're confused
@@ -396,6 +396,14 @@ if($arg{newgit}) {
   my $targete=&shellsafe(glob($ARGV[1])); # $targete=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g if($ARGV[1]);
   my $pwd=&shellsafe(`pwd`); chomp($pwd); # $pwd=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\t ])/\\$1/g;chomp($pwd);
   
+  my $thookfolder='';  
+  $thookfolder="$target/hooks" unless($thookfolder && -d $thookfolder);
+  $thookfolder="$target/.git/hooks" unless(-d $thookfolder);
+
+  my $whookfolder='';  
+  $whookfolder="$workblob/hooks" unless($whookfolder && -d $whookfolder);
+  $whookfolder="$workblob/.git/hooks" unless(-d $whookfolder);
+
   $workblobe="$pwd/$workblobe" unless($workblobe=~/^\//);
   $targete="$pwd/$targete" unless(!$target || $targete=~/^\//);
 
@@ -429,10 +437,14 @@ if($arg{newgit}) {
   unless($ENV{'SCREW_UP_DATES'}) {
     &msg("# Setting up '$workblob' to preserve dates");
     # unless($gitprog) { push $gitprog.=$_ while (<DATA>); } # Reads from the end of this file
-    &preserve_dates($workblob,$hookfolder);
-    print($blu."If doing \"git clone\" in other machines later, remember to copy the following files into your new location .git/hooks/ folder too:\n\t".join("\n\t",@pfn)."$norm\n");
+    &preserve_dates($whookfolder);
+    &pprint($blu."If doing \"git clone\" in other machines later, remember to copy the following files into your new location .git/hooks/ folder too:\n\t".join("\n\t",@pfn)."$norm\n");
   }
-  &BlockApache($hookfolder);
+  if($arg{autopush}) {
+    &makehook("$whookfolder/post-commit");
+  }
+  &BlockApache($thookfolder);
+  &BlockApache($whookfolder);
 
 
   # Set up auto-extract if wanted
@@ -442,7 +454,7 @@ if($arg{newgit}) {
     if(!-e $targete){
       # &do("mkdir -p $targete") unless(-e $target);
     } else {
-      print $red."Caution: '$target' exists: files in here will be overwritten by future 'git push' operations$norm\n";
+      &pprint($red."Caution: '$target' exists: files in here will be overwritten by future 'git push' operations$norm\n");
     }
     &do("git clone $gitblobe $targete");
     #env -u GIT_DIR git -C $targetee pull || exit
@@ -468,7 +480,7 @@ EOF");
     unless($ENV{'SCREW_UP_DATES'}) {
       &msg("# Setting up '$target' to preserve dates");
       # unless($gitprog) { $gitprog.=$_ while (<DATA>); } # Reads from the end of this file
-      &preserve_dates($target,$hookfolder);
+      &preserve_dates($thookfolder);
     }
     
   } # targete
@@ -488,6 +500,14 @@ cd $ARGV[0]
 git-meta.pl -setup " . ( $arg{'l'}? "-l . ":"") . ( $arg{'autopush'}? "-autopush ":"") . "
 $blu# (always remember to \"git pull\" before changing things when you're using multiple machines!)$norm" );
   # Done!
+
+  if(1) {
+    open(OUT,'>>',"$workblobe/README.txt") or die "$workblobe/README.txt:$!";
+    print OUT $pprint;
+    close(OUT);
+    `cd $workblobe;git add README.txt;git commit -m Setup; git config push.default current; git push;cd $pwd`; # Save info about how we were set up
+  }
+
   exit(0);
 } # newgit
 ######################################################################
@@ -505,14 +525,15 @@ if($arg{setup}) {
   $hookfolder='hooks' unless(-d $hookfolder);
   die "No hooks folder: must run this from inside your repo folder." unless(-d $hookfolder);
 
-  &preserve_dates('.',$hookfolder);
+  &preserve_dates($hookfolder);
+  &BlockApache($hookfolder);
 
   if($arg{autopush}) {
     &makehook("$hookfolder/post-commit");
   }
   
   exit(0);
-}
+} # setup
 
 my(@meta,%meta); &LoadMeta($arg{gitmeta});			# Get existing metadata
 
@@ -557,20 +578,22 @@ sub BlockApache { # web-safety 1st.
   my $htaccess="$hookfolder/../.htaccess"; # Parent of hook folder
   my $index="$hookfolder/../index.html"; # Parent of hook folder
   if(-e $htaccess) {
-    print $yel."Caution: moved existing $htaccess to $htaccess.save$norm\n";
+    &pprint($yel."Caution: moved existing $htaccess to $htaccess.save$norm\n");
     rename($htaccess,"$htaccess.save") unless($dryrun);
   }
   if(-e $index) {
-    print $yel."Caution: moved existing $index to $index.save$norm\n";
+    &pprint($yel."# Caution: moved existing $index to $index.save$norm\n");
     rename($index,"$index.save") unless($dryrun);
   }
   unless($dryrun) {
     open(OUT,'>',$htaccess) or warn "$htaccess $!";
     print OUT "<RequireAll>\n    Require all denied\n</RequireAll>\n";
     close(OUT);
+    &pprint($yel."# Created $htaccess with \"Require all denied\"\n");
     open(OUT,'>',$index) or warn "$index: $!";
     print OUT "\n";
     close(OUT);
+    &pprint($yel."# Created empty $index\n");
   }
 } # web-safety 1st.
 
@@ -661,23 +684,27 @@ sub SaveMeta {
   my $commit_author=`git config user.name`; chomp $commit_author; $commit_author .= ' <' . `git config user.email`; chomp $commit_author; $commit_author .= '> at ' . strftime("%Y-%m-%d %H:%M:%S %z",localtime());
 
   # my $current_branch=`git rev-parse --abbrev-ref HEAD`; chomp $current_branch;
-  
+
   print OUT "# octal file mode, owner, group, mtime, atime, spare1, spare2, filename\t# https://github.com/gitcnd/git-meta.git v$VERSION\n" if(ref $meta[0]);
   print OUT "# last: $commit_author\n" if(ref $meta[0]);
-  
+
   for(my $i=0; $i<=$#meta;$i++) {
     # warn "i=$i"; warn "fn=" . $meta[$i]->[-1]; warn "idx=" . $meta{ $meta[$i]->[-1] };
     if(!ref $meta[$i]) { # comment
       if($meta[$i]=~/^# last: /) {
-	print OUT "# last: $commit_author\n"; # discard the old last: author remark
+        print OUT "# last: $commit_author\n"; # discard the old last: author remark
+        warn "# last: $commit_author" if($arg{debug});
       } else {
-	print OUT $meta[$i] . "\n";
+        print OUT $meta[$i] . "\n";
+        warn $meta[$i] if($arg{debug});
       }
-    } elsif( !$done{$meta[$i]->[-1]}++ ) { 	#   $meta{ $meta[$i]->[-1] }==$i ) 	# new or unchanged
+    } elsif( !$done{$meta[$i]->[-1]}++ ) {      #   $meta{ $meta[$i]->[-1] }==$i )      # new or unchanged
       my $newest_i=$meta{ $meta[$i]->[-1] };
-      print OUT join(',',@{$meta[$newest_i]}) . "\n";	# "$meta[$i]->[-1]" is the filename, and the outer $meta{  } is the hash of the filename, which contains the @meta index number of the most recent info to use
+      print OUT join(',',@{$meta[$newest_i]}) . "\n";   # "$meta[$i]->[-1]" is the filename, and the outer $meta{  } is the hash of the filename, which contains the @meta index number of the most recent info to use
+      warn join(',',@{$meta[$newest_i]}) if($arg{debug});
+
     } else {
-      print "Skipping appended $meta[$i]->[-1] at index $i because we earlier overwrote the older one from here: $meta{ $meta[$i]->[-1] }\n" if($arg{debug}); 
+      print "Skipping appended $meta[$i]->[-1] at index $i because we earlier overwrote the older one from here: $meta{ $meta[$i]->[-1] }\n" if($arg{debug});
     }
   }
   close(OUT);
@@ -772,10 +799,10 @@ sub RestoreMeta {
 
 
 # Caution: these subs msg and do in 3 places
-sub msg{ print "\n$wht$_[0]$norm\n"; }
+sub msg{ &pprint("\n$wht$_[0]$norm\n"); }
 sub do {
   my($cmd)=@_;
-  print "$grn$cmd$norm\n";
+  &pprint("$grn$cmd$norm\n");
   print $yel.`$cmd`.$norm unless($dryrun);
 }
 
@@ -784,7 +811,7 @@ sub makehook {
 
   if(!$dryrun) {
     if(-e $fn) {
-      print $yel."Caution: moved existing $fn to $fn.save$norm\n";
+      &pprint($yel."Caution: moved existing $fn to $fn.save$norm\n");
       rename($fn,"$fn.save");
     }
   }
@@ -794,6 +821,7 @@ sub makehook {
   } else {
     open(OUT,'>>',$dryrun ? '/dev/null' : $fn) or die "Cannot create file '$fn': $!";
     print OUT $gitprog; close(OUT); 
+    &pprint($grn . "cat $0 >> $fn$norm\n");
   }
 
 	#commit_author="$(git config user.name)"" <""$(git config user.email)"">" 
@@ -814,10 +842,8 @@ sub makehook {
 
 # CAUTION!! This code in 3 places (inside newgit.pl, and ALSO inside git-meta.pl and in the the pre-commit and post-checkout DATA sections of newgit.pl)
 sub preserve_dates {
-  my($base,$hookfolder)=@_;
+  my($hookfolder)=@_;
 
-  $hookfolder="$base/hooks" unless($hookfolder && -d $hookfolder);
-  $hookfolder="$base/.git/hooks" unless(-d $hookfolder);
   die "No hooks folder ($hookfolder from ".`pwd`."): must run this from inside your repo folder." unless(-d $hookfolder);
 
   foreach("$hookfolder/pre-commit", "$hookfolder/post-merge", "$hookfolder/post-checkout") {
@@ -829,6 +855,21 @@ sub preserve_dates {
 } # preserve_dates
 
 
+sub pprint {
+  my($tmp)=@_;
+  print $tmp;
+
+  if(0) { # leave ANSI for now...
+    my $add=0;
+    while($tmp=~/(.*?)(\033\[[\d\;]+m)(.*)/sm) {
+      $add+=length($2); # if(length($1)<$cols);
+      $tmp=$1 . $3;
+    }
+  }
+  $pprint .=$tmp;
+} # pprint
+
+
 =for spare
 
 git-meta.pl - solution for preserving all the correct file dates, times, ownership, and access permissions in git, and feature to prepare new git projects using your own machines (instead of a cloud or github)
@@ -837,5 +878,9 @@ Note-to-self: remember to do this before push:-
 
 	pod2markdown git-meta.pl README.md 
 
+
+auto-extract branch handling...
+git fetch;git reset --hard `git rev-parse origin/HEAD`; # does not run hooks
+# git pull won't run - already latest
 
 =cut
