@@ -531,7 +531,8 @@ if($arg{setup}) {
   if($arg{autopush}) {
     &makehook("$hookfolder/post-commit");
   }
-  
+  print `.git/hooks/post-merge` if(-e '.git-meta');
+
   exit(0);
 } # setup
 
