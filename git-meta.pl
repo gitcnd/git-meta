@@ -1,6 +1,7 @@
 #!/usr/bin/perl -w
 
-our $VERSION='0.20250112';	# Please use format: major_revision.YYYYMMDD[hh24mi]
+
+our $VERSION='0.20250223';	# Please use format: major_revision.YYYYMMDD[hh24mi]
 
 =head1 git-meta
 
@@ -63,6 +64,44 @@ create a brand-new local project
 
 
 =back
+
+=cut
+
+
+	# $ git-meta.pl -setup  -group aura -autopush 
+	# pushd .git/hooks/..; git config --local core.fileMode false;popd
+	# sh: 1: pushd: not found
+	# sh: 1: popd: not found
+
+	# chown: changing ownership of 'README.txt': Operation not permitted
+
+
+	# bug: needs chmod -R g+w .
+	# if -l option, no chmod needed
+	# no follow symlinks
+	# needs chown -R before the --local
+	# snafu:  drwxr-xr-x. 3 root root 77 Feb 21 21:22 /var/www/html/userfriday/
+	# -rw-rw-r--. 1 root user 66 Feb 21 21:22 ../../gitblobs/website_user/config
+	# hint: The 'hooks/post-update' hook was ignored because it's not set as executable.
+
+	# shareproject;
+	# echo export FN first;
+	# echo doing $FN;
+	# dir -d ~/Downloads/gitblobs/$FN ~/Downloads/cursor/$FN ~/Downloads/cursor/$FN-auto;
+	# chgrp -R user ~/Downloads/gitblobs/$FN ~/Downloads/cursor/$FN ~/Downloads/cursor/$FN-auto;
+	# chmod ug+rw `find ~/Downloads/gitblobs/$FN ~/Downloads/cursor/$FN ~/Downloads/cursor/$FN-auto`;
+	# chmod ug+rwx `find ~/Downloads/gitblobs/$FN ~/Downloads/cursor/$FN ~/Downloads/cursor/$FN-auto -type d`;
+	# chmod g+s `find ~/Downloads/gitblobs/$FN ~/Downloads/cursor/$FN ~/Downloads/cursor/$FN-auto -type d`;
+	# sudo setfacl -d -m g::rwx ~/Downloads/gitblobs/$FN ~/Downloads/cursor/$FN ~/Downloads/cursor/$FN-auto;
+	# echo after;
+	# dir -d ~/Downloads/gitblobs/$FN ~/Downloads/cursor/$FN ~/Downloads/cursor/$FN-auto
+
+	# needs ug+rwx as well as +s
+
+	# ?	git config --global --add safe.directory /home/user/Downloads/cursor/cursor_template
+
+	# touch: setting times of '.htaccess': Operation not permitted
+	# ^^ don't try to change it if its the same
 
 
 
@@ -132,18 +171,22 @@ be sure to run that `git-meta.pl -setup -l .` command: "git clone" does not auto
 
 =head2 Options
 
-	-f		# Specify the meta filename to use ( defaults to .git-meta )
+	-f <file>	# Specify the meta filename to use ( defaults to .git-meta )
 	-save		# Save into the .git-meta. Saves all files if none are provided
 	-restore	# Restore from the .git-meta. Restores all files if none are provided
 	-setup		# create the necessary pre-commit and post-checkout files to activate this solution in your repo
 	-strict		# Stop with errors instead of assume what the user wants (partially implimented)
 	-dryrun		# Show what would be done, without doing it (partially implimented)
-	-l		# use a symlink when doing setup, for pre-commit and post-checkout (e.g. -l /usr/local/bin/git-meta.pl) - otherwise - copies the file there.
+	-l <target>	# use a symlink when doing setup, for pre-commit and post-checkout (e.g. -l /usr/local/bin/git-meta.pl) - otherwise - copies the file there. ** Do NOT use -l if Windows uses your filesystem (eg, WSL, or Windows itself) **
+	-c <folder>	# "cd" into this folder first
 	-newgit		# creates a working 3-folder shared dev environment for production web (or other) server site
 	-master_location# Where to store the master filess (defaults to ~/gitblobs/)
 	-group		# which groupname do all developers belong to
+	-owner		# which user should own this (e.g. if you run this script as root)
+	-public		# put author email into .git-meta file
 	-autopush	# adds a post-commit hook that automatically does a "git push" every time you commit. (only works for the -setup command)
 	-debug		# print everything going on
+	-help		# show this help
 
 =head2 .git-meta file format
 
@@ -240,16 +283,18 @@ my %arg;&GetOptions('help|?'	=> \$arg{help},			# breif instructions
 		    'master_location=s'	=> \$arg{master_location}, # defaults to $ENV{"HOME"}."/gitblobs";
 		    'f=s'	=> \$arg{gitmeta},		# meta filename
 		    'group=s'	=> \$arg{group},		# which groupname do all developers belong to
+		    'owner=s'	=> \$arg{owner},		# which owner for it all (when run as root)
 		    'l=s'	=> \$arg{l},			# expects the name of this program. Use "." to use the `pwd`/$0
 		    'c=s'	=> \$arg{c},			# "cd" into this folder first
-		    'save'	=> \$arg{save},
-		    'restore'	=> \$arg{restore},
-		    'autopush'	=> \$arg{autopush},
-		    'strict'	=> \$arg{strict},		# stop instead of assume
-		    'debug'	=> \$arg{debug},
-		    'setup'	=> \$arg{setup},
+		    'save'	=> \$arg{save},			# Save into the .git-meta. Saves all files if none are provided
+		    'restore'	=> \$arg{restore},		# Restore from the .git-meta. Restores all files if none are provided
+		    'autopush'	=> \$arg{autopush},		# adds a post-commit hook that automatically does a "git push" every time you commit. (only works for the -setup command)
+		    'strict'	=> \$arg{strict},		# stop instead of assume 
+		    'public'	=> \$arg{public},		# show email
+		    'debug'	=> \$arg{debug},		# print everything going on
+		    'setup'	=> \$arg{setup},		# create the necessary pre-commit and post-checkout files to activate this solution in your repo
 		    'dryrun'	=> \$arg{dryrun},		# not fully implemented!
-		    'newgit'	=> \$arg{newgit},
+		    'newgit'	=> \$arg{newgit},		# creates a working 3-folder shared dev environment for production web (or other) server site
 	   ) or &pod2usage(2); 
 no warnings;
 	   &pod2usage(1) if ($arg{help});			# exits
@@ -258,6 +303,8 @@ $arg{gitmeta}=".git-meta" unless($arg{gitmeta});
 $arg{dryrun}=$ENV{'DRYRUN'} unless($arg{dryrun});		# debugging - set the switch or env var to 1 if you want to print, but not execute, the commands
 my $dryrun=$arg{dryrun};
 $arg{c}=1 unless($arg{c});
+my $last=$arg{public} ? '# last <>' : '# last:';
+
 
 sub d2l {
   #my($dospath)=@_;			# C:\Users\cnd\Downloads\mygit.pl
@@ -370,122 +417,153 @@ if($0=~/newgit/) {
 
 ######################################################################
 if($arg{newgit}) {
+  die "This script must not be run as root or with sudo!" if ($< == 0 || $> == 0);
   
   # newgit settings
   
   my $master_location=$arg{master_location} ? $arg{master_location} : $ENV{"HOME"}."/gitblobs"; # Change this to whatever default folder you want to use for storing master copies of files
-  $master_location=glob($master_location);
-  chop $master_location if($master_location=~/\/$/);
+  $master_location=glob($master_location); chop $master_location if($master_location=~/\/$/);
+
+  # This is the folder where all the gitblob folders will live
   &do("mkdir -p $master_location") unless(-d $master_location);
   &do("sudo chgrp $arg{group} $master_location") if($arg{group});
-  &do("chmod g+x $master_location"); # let other people in our group write into this
+  &do("sudo chown $arg{owner} $master_location") if($arg{owner});
+  &do("chmod ug+rwx $master_location"); # let other people in our group write into this
   &do("chmod g+s $master_location"); # default to allow above on new files
   &do("sudo setfacl -d -m g::rwx $master_location");	# Assumes: zfs set acltype=posixacl your_dataset_name; zfs set xattr=sa your_dataset_name # on zfs
   
   $ARGV[0]='-' unless($ARGV[0]); # see next
   foreach(@ARGV){die "Usage:\t$0 gitname [optional-auto-extract-location]" if(/^-/);} # stop if they're confused
   foreach(keys(%arg)){die "Usage:\t$0 gitname [optional-auto-extract-location]" if(defined($arg{$_}) && $arg{$_}=~/^-/);} # stop if they're confused
+
+
   my $gitblob=glob($ARGV[0]); $gitblob="$master_location/$ARGV[0]" unless($ARGV[0]=~/\//);
   die "Sorry, $gitblob exists" if(-e $gitblob);
-  my $gitnamee=&shellsafe(glob($ARGV[0])); # $gitnamee=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;
-  my $gitblobe=&shellsafe($gitblob); # $gitblobe=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;	# shell-escape for dummies who use spaces in filenames
-  my $workblob=glob($ARGV[0]);
-  my $workblobe=&shellsafe(glob($ARGV[0])); # $workblobe=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g;
-  my $target=glob($ARGV[1]) if($ARGV[1]);
-  chop $target if($target=~/\/$/);
-  my $targete=&shellsafe(glob($ARGV[1])); # $targete=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\s])/\\$1/g if($ARGV[1]);
-  my $pwd=&shellsafe(`pwd`); chomp($pwd); # $pwd=~s/([\$\#\&\*\?\;\|\>\<\(\)\{\}\[\]\"\'\~\!\\\t ])/\\$1/g;chomp($pwd);
-  
-  my $thookfolder='';  
-  $thookfolder="$target/hooks" unless($thookfolder && -d $thookfolder);
-  $thookfolder="$target/.git/hooks" unless(-d $thookfolder);
+  my $gitnamee=&shellsafe(glob($ARGV[0]));
 
-  my $whookfolder='';  
-  $whookfolder="$workblob/hooks" unless($whookfolder && -d $whookfolder);
-  $whookfolder="$workblob/.git/hooks" unless(-d $whookfolder);
+  my $gitblobe=&shellsafe($gitblob);
+
+  my $workblob=glob($ARGV[0]);
+  my $workblobe=&shellsafe(glob($ARGV[0]));
+
+  my $autotarget=glob($ARGV[1]) if($ARGV[1]);
+  chop $autotarget if($autotarget=~/\/$/);
+  my $autotargete=&shellsafe(glob($ARGV[1]));
+  my $pwd=&shellsafe(`pwd`); chomp($pwd);
+  
+  my $auto_hookfolder='';  
+  $auto_hookfolder="$autotarget/hooks" unless($auto_hookfolder && -d $auto_hookfolder);
+  $auto_hookfolder="$autotarget/.git/hooks" unless(-d $auto_hookfolder);
+
+  my $work_hookfolder='';  
+  $work_hookfolder="$workblob/hooks" unless($work_hookfolder && -d $work_hookfolder);
+  $work_hookfolder="$workblob/.git/hooks" unless(-d $work_hookfolder);
 
   $workblobe="$pwd/$workblobe" unless($workblobe=~/^\//);
-  $targete="$pwd/$targete" unless(!$target || $targete=~/^\//);
+  $autotargete="$pwd/$autotargete" unless(!$autotarget || $autotargete=~/^\//);
 
   die "no master location specified" unless($gitblobe);
   die "no work blob specified" unless($workblobe);
-  #die "no target specified" unless($targete);
-  die "cannot determin pwd" unless($pwd);
-
+  die "cannot determine pwd" unless($pwd);
+  my ($usrpfx,$usrsfx)=$arg{owner} ? ("su - $arg{owner} -c '","'") : ('',''); # runs with "su -" if they specified an owner
 
 
   &msg("# Create the master location");
   &do("mkdir -p $gitblobe");	# ~/gitblobs/foo
   &do("chgrp $arg{group} $gitblobe") if($arg{group});
-  &do("chmod g+x $gitblobe"); # let other people in our group write into this
+  &do("chown $arg{owner} $gitblobe") if($arg{owner});
+  &do("chmod g+rwx $gitblobe"); # let other people in our group write into this
   &do("chmod g+s $gitblobe"); # default to allow above on new files
   &do("setfacl -d -m g::rwx $gitblobe");
 
   &do("cd $gitblobe;git init --bare;cd $pwd");
-  
+  my $chowner=$arg{owner} ? "chown -R $arg{owner} $gitblobe;" : '';
+  $chowner.=$arg{group} ? "chgrp -R $arg{group} $gitblobe;" : '';
+  &do($chowner) if($chowner);
+
 
   &msg("# Create one initial working folder");
-  #&do("mkdir -p $workblobe") if($workblobe);	# ./foo
   &do("git clone $gitblobe $workblobe");
-  #&do("cd $workblobe;git clone $gitblobe; git config push.default current; cd $pwd");
   &do("chgrp $arg{group} $workblobe") if($arg{group});
-  &do("chmod g+x $workblobe"); # let other people in our group write into this
-  &do("chmod g+s $workblobe"); # default to allow above on new files
-  &do("setfacl -d -m g::rwx $workblobe");
-  &do("cd $workblobe;touch README.txt;git add README.txt;git commit -m Setup; git config push.default current; git push;cd $pwd");
-  #&do("cd $workblobe;mv $gitnamee/.git .;rmdir $gitnamee;cd $pwd");
+  &do("chown $arg{owner} $workblobe") if($arg{owner});
+  &do("chmod g+rwx $workblobe") if($arg{group}); # let other people in our group write into this
+  &do("chmod g+s $workblobe") if($arg{group}); # default to allow above on new files
+  &do("setfacl -d -m g::rwx $workblobe") if($arg{group});
+
+  $chowner=$arg{owner} ? "chown -R $arg{owner} $workblobe;" : '';
+  $chowner.=$arg{group} ? "chgrp -R $arg{group} $workblobe;" : '';
+  &do("$chowner${usrpfx}cd $workblobe;touch README.txt;git add README.txt;git commit -m Setup; git config push.default current; git push;cd $pwd$usrsfx") if($arg{group});
+
+
   unless($ENV{'SCREW_UP_DATES'}) {
     &msg("# Setting up '$workblob' to preserve dates");
-    # unless($gitprog) { push $gitprog.=$_ while (<DATA>); } # Reads from the end of this file
-    &preserve_dates($whookfolder);
+    &preserve_dates($work_hookfolder);
     &pprint($blu."If doing \"git clone\" in other machines later, remember to copy the following files into your new location .git/hooks/ folder too:\n\t".join("\n\t",@pfn)."$norm\n");
   }
   if($arg{autopush}) {
-    &makehook("$whookfolder/post-commit");
+    &makehook("$work_hookfolder/post-commit");
   }
-  &BlockApache($thookfolder);
-  &BlockApache($whookfolder);
+  &BlockApache($auto_hookfolder);
+  &BlockApache($work_hookfolder);
 
+  # re-do, to be safe
+  $chowner=$arg{owner} ? "chown -R $arg{owner} $gitblobe;" : '';
+  $chowner.=$arg{group} ? "chgrp -R $arg{group} $gitblobe;" : '';
+  &do($chowner) if($chowner && $arg{group});
+  &do("pushd $gitblobe;chmod ug+rw `find .`; chmod ug+rwx `find . -type d`; chmod g+s `find . -type d`;popd") if($arg{group});
+  $chowner=$arg{owner} ? "chown -R $arg{owner} $workblobe;" : '';
+  $chowner.=$arg{group} ? "chgrp -R $arg{group} $workblobe;" : '';
+  &do($chowner) if($chowner && $arg{group});
+  &do("pushd $workblobe;chmod ug+rw `find .`; chmod ug+rwx `find . -type d`; chmod g+s `find . -type d`;popd") if($arg{group});
 
   # Set up auto-extract if wanted
-  if($targete) {
-    &msg("# Set up auto-extract into $targete");
-    my $targetee=$targete; $targetee=~s/\\/\\\\/g;
-    if(!-e $targete){
-      # &do("mkdir -p $targete") unless(-e $target);
+  if($autotargete) {
+    &msg("# Set up auto-extract into $autotargete");
+    my $autotargetee=$autotargete; $autotargetee=~s/\\/\\\\/g;
+    if(!-e $autotargete){
+      # &do("mkdir -p $autotargete") unless(-e $autotarget);
     } else {
-      &pprint($red."Caution: '$target' exists: files in here will be overwritten by future 'git push' operations$norm\n");
+      &pprint($red."Caution: '$autotarget' exists: files in here will be overwritten by future 'git push' operations$norm\n");
     }
-    &do("git clone $gitblobe $targete");
-    #env -u GIT_DIR git -C $targetee pull || exit
-    my $fixgrp=''; $fixgrp="chgrp -R $arg{group} . 2>/dev/null\n" if($arg{group});
+    &do("git clone $gitblobe $autotargete");
+
+    my $fixgrp='';
+    $fixgrp="chgrp -R $arg{group} . 2>/dev/null\n" if($arg{group});
+    $fixgrp.="chown -R $arg{owner} . 2>/dev/null\n" if($arg{owner});
+    $fixgrp ="cd $gitblobe\n" . $fixgrp if($fixgrp);
     &do("cd $gitblobe/hooks/;cat >post-update <<\\EOF
 #!/bin/bash
-printf \"post-update ($gitblobe/hooks/post-update): running in $targetee...\\n\"
-pushd $targetee
-cd $gitblobe
+printf \"post-update ($gitblobe/hooks/post-update): running in $autotargetee...\\n\"
+pushd $autotargetee
 $fixgrp
-cd $targetee;env -u GIT_DIR git reset --hard; env -u GIT_DIR git pull || exit
+cd $autotargetee;env -u GIT_DIR git reset --hard; env -u GIT_DIR git pull || exit
 $fixgrp
 popd
-printf \"post-update: ran ok $targetee\\n\"
+printf \"post-update: ran ok $autotargetee\\n\"
 EOF");
-    &do("cd $gitblobe/hooks/;chmod -c +x post-update;cd $pwd");
-    #&do("cd $targete;git clone $gitblobe; git config pull.default current;cd $pwd");
-    &do("cd $targete; git config pull.default current;cd $pwd");
-    #&do("cd $targete;mv $gitnamee/.git .;rmdir $gitnamee;cd $pwd");
-    &do("touch $targete/AUTOGENERATED_FOLDER-DOT_NOT_EDIT");
-    &BlockApache("$targete/.git/hooks");
+
+    &do("cd $gitblobe/hooks/;chmod ug+rwx post-update;cd $pwd");
+    &do("cd $autotargete; git config pull.default current;cd $pwd");
+    &do("touch $autotargete/AUTOGENERATED_FOLDER-DOT_NOT_EDIT");
+    &BlockApache("$autotargete/.git/hooks");
   
     unless($ENV{'SCREW_UP_DATES'}) {
-      &msg("# Setting up '$target' to preserve dates");
-      # unless($gitprog) { $gitprog.=$_ while (<DATA>); } # Reads from the end of this file
-      &preserve_dates($thookfolder);
+      &msg("# Setting up '$autotarget' to preserve dates");
+      &preserve_dates($auto_hookfolder);
     }
-    
-  } # targete
 
-  
+    # re-do, to be safe
+    $chowner=$arg{owner} ? "chown -R $arg{owner} $autotargete;" : '';
+    $chowner.=$arg{group} ? "chgrp -R $arg{group} $autotargete;" : '';
+    &do($chowner) if($chowner && $arg{group});
+    &do("pushd $autotargete;chmod ug+rw `find .`; chmod ug+rwx `find . -type d`; chmod g+s `find . -type d`;popd")  if($arg{group});
+
+    
+  } # autotargete
+
+  # git config --global --add safe.directory /home/cnd/Downloads/gitblobs/aurafriday
+ 
+ 
   my $hostname=`hostname`;chomp($hostname);
   &msg("$blu# Done! Try these next perhaps:$wht
 pushd $ARGV[0]
@@ -494,10 +572,10 @@ git add index.html
 git commit -m Initial_Commit
 git push
 popd
-" . ( $target? "dir $target\n" : "") . "$blu# And on some other machine:-$wht
+" . ( $autotarget? "dir $autotarget\n" : "") . "$blu# And on some other machine:-$wht
 git clone ssh://$hostname$gitblob
 cd $ARGV[0]
-git-meta.pl -setup " . ( $arg{'l'}? "-l . ":"") . ( $arg{'autopush'}? "-autopush ":"") . "
+git-meta.pl -setup " . ( $arg{'l'}? "-l . ":"") . ( $arg{'owner'}? "-owner $arg{'owner'} ":"") . ( $arg{'group'}? "-group $arg{'group'} ":"") . ( $arg{'autopush'}? "-autopush ":"") . "
 $blu# (always remember to \"git pull\" before changing things when you're using multiple machines!)$norm" );
   # Done!
 
@@ -576,8 +654,8 @@ sub GetIgnore {
 
 sub BlockApache { # web-safety 1st.
   my($hookfolder)=@_;
-  my $htaccess="$hookfolder/../.htaccess"; # Parent of hook folder
-  my $index="$hookfolder/../index.html"; # Parent of hook folder
+  my $htaccess=&canonicalize_path("$hookfolder/../.htaccess"); # Parent of hook folder
+  my $index=&canonicalize_path("$hookfolder/../index.html"); # Parent of hook folder
   if(-e $htaccess) {
     &pprint($yel."Caution: moved existing $htaccess to $htaccess.save$norm\n");
     rename($htaccess,"$htaccess.save") unless($dryrun);
@@ -660,7 +738,9 @@ sub LoadMeta {
     while(<IN>) {
       chomp;
       my $fm=$_; 
-      unless(/^\s*#/) {
+      if(/^\s*#/) {
+        $last=$fm if($fm=~/^# last:/); # if this has < in it, git-meta will include commit author email in comments
+      } else {
         my @fm=split(/,/,$_,8); $fm=\@fm;
 	if (ref $meta{$$fm[-1]} && join(',',@{$meta{$$fm[-1]}}) eq $_) {
 	  $fm=undef;
@@ -682,7 +762,9 @@ sub SaveMeta {
   my($metafile)=@_; my %done;
   open(OUT,'>',$metafile) or die "write: $metafile: $!";
 
-  my $commit_author=`git config user.name`; chomp $commit_author; $commit_author .= ' <' . `git config user.email`; chomp $commit_author; $commit_author .= '> at ' . strftime("%Y-%m-%d %H:%M:%S %z",localtime());
+  my $commit_author=`git config user.name`; chomp $commit_author;
+  if($last=~/</) { $commit_author .= ' <' . `git config user.email`; chomp $commit_author; $commit_author .= '>'; }
+  $commit_author .= ' at ' . strftime("%Y-%m-%d %H:%M:%S %z",localtime());
 
   # my $current_branch=`git rev-parse --abbrev-ref HEAD`; chomp $current_branch;
 
@@ -722,7 +804,7 @@ sub GetMeta {
   for(my $i=0; $i<=$#files;$i++) {
     my $f=$files[$i];
 #warn "$i: $f";
-    if(-d $f) {
+    if(-d $f && !-l $f) {
       opendir(my $dh, $f) or die "Could not open '$f' for reading: $!";
       while (my $subfile = readdir($dh)) {
         next if $subfile eq '.' or $subfile eq '..';
@@ -851,10 +933,27 @@ sub preserve_dates {
     &makehook($_);
     push @pfn,$_;
   }
-  &do("git config --local core.fileMode false"); # so future "pull" doesn't choke after the hook changed permissions.
+  &do("chown -R $arg{owner} $hookfolder") if($arg{owner});
+  &do("chgrp -R $arg{group} $hookfolder") if($arg{group});
+  &do("pushd $hookfolder/..; git config --local core.fileMode false;popd"); # so future "pull" doesn't choke after the hook changed permissions.
 
 } # preserve_dates
 
+sub canonicalize_path {
+  my ($path) = @_;
+  my @parts = split('/', $path);
+  my @stack;
+
+  for my $part (@parts) {
+    next if $part eq '.';  # Skip current directory references
+    if ($part eq '..') {
+      pop @stack if @stack;  # Go up one directory if possible
+    } else {
+      push @stack, $part;  # Add the directory to the stack
+    }
+  }
+  return join('/', @stack);
+} # canonicalize_path
 
 sub pprint {
   my($tmp)=@_;

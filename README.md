@@ -87,18 +87,22 @@ be sure to run that \`git-meta.pl -setup -l .\` command: "git clone" does not au
 
 ## Options
 
-        -f              # Specify the meta filename to use ( defaults to .git-meta )
+        -f <file>       # Specify the meta filename to use ( defaults to .git-meta )
         -save           # Save into the .git-meta. Saves all files if none are provided
         -restore        # Restore from the .git-meta. Restores all files if none are provided
         -setup          # create the necessary pre-commit and post-checkout files to activate this solution in your repo
         -strict         # Stop with errors instead of assume what the user wants (partially implimented)
         -dryrun         # Show what would be done, without doing it (partially implimented)
-        -l              # use a symlink when doing setup, for pre-commit and post-checkout (e.g. -l /usr/local/bin/git-meta.pl) - otherwise - copies the file there.
+        -l <target>     # use a symlink when doing setup, for pre-commit and post-checkout (e.g. -l /usr/local/bin/git-meta.pl) - otherwise - copies the file there. ** Do NOT use -l if Windows uses your filesystem (eg, WSL, or Windows itself) **
+        -c <folder>     # "cd" into this folder first
         -newgit         # creates a working 3-folder shared dev environment for production web (or other) server site
         -master_location# Where to store the master filess (defaults to ~/gitblobs/)
         -group          # which groupname do all developers belong to
+        -owner          # which user should own this (e.g. if you run this script as root)
+        -public         # put author email into .git-meta file
         -autopush       # adds a post-commit hook that automatically does a "git push" every time you commit. (only works for the -setup command)
         -debug          # print everything going on
+        -help           # show this help
 
 ## .git-meta file format
 
@@ -155,3 +159,7 @@ git-meta.pl - solution for preserving all the correct file dates, times, ownersh
 Note-to-self: remember to do this before push:-
 
         pod2markdown git-meta.pl README.md 
+
+auto-extract branch handling...
+git fetch;git reset --hard \`git rev-parse origin/HEAD\`; # does not run hooks
+\# git pull won't run - already latest
