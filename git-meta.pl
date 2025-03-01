@@ -1,7 +1,7 @@
 #!/usr/bin/perl -w
 
 
-our $VERSION='0.20250223';	# Please use format: major_revision.YYYYMMDD[hh24mi]
+our $VERSION='0.20250301';	# Please use format: major_revision.YYYYMMDD[hh24mi]
 
 =head1 git-meta
 
@@ -67,8 +67,13 @@ create a brand-new local project
 
 =cut
 
+	# don't change it if we wouldn't have permission in the first place?
+	# runs in DOS?
+	# runs in some non-WSL linux too?
 
-	# $ git-meta.pl -setup  -group aura -autopush 
+	# shareproject;echo export FN first;echo doing $FN; dir -d ~/Downloads/gitblobs/$FN ~/Downloads/cursor/$FN ~/Downloads/cursor/$FN-auto; chgrp -R devgrp ~/Downloads/gitblobs/$FN ~/Downloads/cursor/$FN ~/Downloads/cursor/$FN-auto;chmod ug+rw `find ~/Downloads/gitblobs/$FN ~/Downloads/cursor/$FN ~/Downloads/cursor/$FN-auto`;  chmod ug+rwx `find ~/Downloads/gitblobs/$FN ~/Downloads/cursor/$FN ~/Downloads/cursor/$FN-auto -type d`; chmod g+s `find ~/Downloads/gitblobs/$FN ~/Downloads/cursor/$FN ~/Downloads/cursor/$FN-auto -type d`;sudo setfacl -d -m g::rwx ~/Downloads/gitblobs/$FN ~/Downloads/cursor/$FN ~/Downloads/cursor/$FN-auto; echo after; dir -d ~/Downloads/gitblobs/$FN ~/Downloads/cursor/$FN ~/Downloads/cursor/$FN-auto
+
+	# $ git-meta.pl -setup  -group devgrp -autopush 
 	# pushd .git/hooks/..; git config --local core.fileMode false;popd
 	# sh: 1: pushd: not found
 	# sh: 1: popd: not found
@@ -299,11 +304,17 @@ my %arg;&GetOptions('help|?'	=> \$arg{help},			# breif instructions
 no warnings;
 	   &pod2usage(1) if ($arg{help});			# exits
 use warnings;
+# $arg{debug}=1;
+
 $arg{gitmeta}=".git-meta" unless($arg{gitmeta});
 $arg{dryrun}=$ENV{'DRYRUN'} unless($arg{dryrun});		# debugging - set the switch or env var to 1 if you want to print, but not execute, the commands
 my $dryrun=$arg{dryrun};
 $arg{c}=1 unless($arg{c});
-my $last=$arg{public} ? '# last <>' : '# last:';
+my $last=$arg{public} ? '# last:() <>' : '# last:() ';
+my($myuid,$mygid); # set in &lastline
+$mygid="" . getgrnam($arg{group}) . ':' . $arg{group} if($arg{group});
+warn "mygid=$mygid" if($arg{debug});
+my $gidb=(split(/ /,$( ))[0]; 
 
 
 sub d2l {
@@ -382,6 +393,7 @@ if($arg{l} && $arg{l} eq '.') {
 #die "$0: " . join("^",%arg) . "\t" . join("^",@ARGV);
 # Change the personality of this program, depending on what name $0 it has:
 if($0=~/pre-commit/) {
+  &GetMyGid($arg{gitmeta});
   $arg{save}=1;
   my @staged_files=`git diff --cached --name-only`;
   chomp(@staged_files);
@@ -392,16 +404,19 @@ if($0=~/pre-commit/) {
 }
 
 if($0=~/post-checkout/) {
+  &GetMyGid($arg{gitmeta});
   $arg{restore}=1;
   @ARGV='.'; # do/check everything
 }
 
 if($0=~/post-merge/) {
+  &GetMyGid($arg{gitmeta});
   $arg{restore}=1;
   @ARGV='.'; # do/check everything
 }
 
 if($0=~/post-commit/) {
+  &GetMyGid($arg{gitmeta});
   &do("git push");
   exit(0);
 }
@@ -419,6 +434,10 @@ if($0=~/newgit/) {
 if($arg{newgit}) {
   die "This script must not be run as root or with sudo!" if ($< == 0 || $> == 0);
   
+
+  $ENV{'MY_GIT_META_GID'} = $mygid;
+  warn "############      mygid=$mygid" if($arg{debug});
+
   # newgit settings
   
   my $master_location=$arg{master_location} ? $arg{master_location} : $ENV{"HOME"}."/gitblobs"; # Change this to whatever default folder you want to use for storing master copies of files
@@ -561,7 +580,7 @@ EOF");
     
   } # autotargete
 
-  # git config --global --add safe.directory /home/cnd/Downloads/gitblobs/aurafriday
+  # git config --global --add safe.directory /home/cnd/Downloads/gitblobs/workfolder
  
  
   my $hostname=`hostname`;chomp($hostname);
@@ -615,6 +634,7 @@ if($arg{setup}) {
 } # setup
 
 my(@meta,%meta); &LoadMeta($arg{gitmeta});			# Get existing metadata
+
 
 if($arg{save}) {
   &GetIgnore();
@@ -683,11 +703,19 @@ sub MetaFile {
   my ($dev, $ino, $mode, $nlink, $uid, $gid, $rdev, $size, $atime, $mtime, $ctime, $blksize, $blocks)=Time::HiRes::lstat($filename); # the symlink itself, not the target
 
   # Retrieve specific file information
-  my $permissions = sprintf "%04o", $mode & 07777;
+  my $modefix = (-d $filename) ? 0770 : 0660; # must not block other people in our group from writing to folders!
+  
+  my $permissions = sprintf "%04o", $mode & 07777 | $modefix;
+  # $permissions = '0644' if(!$permissions || $permissions eq '0000'); # don't permit locking ourself out
 
   # Convert numeric user ID and group ID to names
-  my $owner_name = getpwuid($uid);
-  my $group_name = getgrgid($gid);
+  my $owner_name = $myuid; $owner_name=~s/.*://; # getpwuid($uid);
+  my $group_name = $mygid; $group_name=~s/.*://; # getgrgid($gid);
+
+  $mtime = Time::HiRes::time() if !defined($mtime);
+  $atime = $mtime if !defined($atime);
+  $ctime = $mtime if !defined($ctime);
+
 
   my $microsecs_m=($mtime=~/(\.\d+)/)[0] // ""; # returns .456 or (if no decimal places) just ""
   my $humantime_m= strftime("%Y-%m-%d %H:%M:%S",localtime($mtime)) . $microsecs_m . strftime(" %z", localtime()) ;
@@ -730,16 +758,22 @@ sub MetaFile {
 # Load a .git-meta file into @meta and %meta
 sub LoadMeta {
   my($metafile)=@_;
+  warn "mygid=$mygid" if($arg{debug});
   if(!-f $metafile) {
     die "Expecting -f $metafile" if $arg{strict};
     print STDERR $yel."Warning: no $metafile" . ($arg{save} ? " (it will be created next)" : "") . "$norm\n";
+    $mygid=$ENV{'MY_GIT_META_GID'} if($ENV{'MY_GIT_META_GID'});
+    warn "######## mygid=$mygid" if($arg{debug});
   } else {
     open(IN,'<',$metafile) or die "$metafile: $!";
     while(<IN>) {
       chomp;
       my $fm=$_; 
-      if(/^\s*#/) {
-        $last=$fm if($fm=~/^# last:/); # if this has < in it, git-meta will include commit author email in comments
+      if(/^\s*#/) { # CAUTION - THIS IN 2 PLACES
+        if($fm=~/^# last:/){ # if this has < in it, git-meta will include commit author email in comments
+          $last=$fm;
+          &lastline($last,"name","email"); # Sets $myuid/$mygid
+        }
       } else {
         my @fm=split(/,/,$_,8); $fm=\@fm;
 	if (ref $meta{$$fm[-1]} && join(',',@{$meta{$$fm[-1]}}) eq $_) {
@@ -753,7 +787,67 @@ sub LoadMeta {
     }
     close(IN);
   }
+  warn "mygid=$mygid" if($arg{debug});
 } # LoadMeta
+
+
+
+sub GetMyGid {
+  my($metafile)=@_;
+  if(!-f $metafile) {
+    &lastline("","name","email"); # sets initial $myuid and $mygid
+  } else {
+    open(IN,'<',$metafile) or die "$metafile: $!";
+    my $max=5;
+    while(<IN>) {
+      last if($max--<0);
+      chomp;
+      my $fm=$_;
+      if(/^\s*#/) { # CAUTION - THIS IN 2 PLACES
+        if($fm=~/^# last:/){ # if this has < in it, git-meta will include commit author email in comments
+          $last=$fm;
+          &lastline($last,"name","email"); # Sets $myuid/$mygid
+        }
+      }
+    }
+  }
+  warn "mygid=$mygid" if($arg{debug});
+} # GetMyGid
+
+
+
+# Make a single-line comment for out .git-meta file, which also includes the uid/gid so we can use those as defaults if they're missing on some platform later (e.g. windows)
+sub lastline {
+  my($lastlast, $commit_user_name, $commit_user_email, $uid, $gid)=@_;
+  my($lastuid,$lastgid)=($lastlast=~/^# last:\(([^,]+),([^,]+)\)/) if($lastlast);
+  warn "mygid=$mygid lastgid=$lastgid" if($arg{debug});
+  unless($uid) {
+    $uid=$< . ":" . ( $< ? "" . getpwuid($<) : "unknown"); # 500:cnd
+    $uid=$lastuid if($uid=~/unknown/);
+  }
+  $gid=$mygid if(!$gid && $mygid); # the "group" part needs to be sticky, so shared-editing always works
+  unless($gid) {
+    $gid=$gidb . ":" . ( $gidb ? "" . getgrgid($gidb) : "unknown"); # 500:cnd
+    warn "mygid=$mygid gid=$gid \$(=$( getgrgid=".getgrgid($() if($arg{debug});
+    $gid=$lastgid if($gid=~/unknown/);
+  }
+  warn "mygid=$mygid gid=$gid" if($arg{debug});
+
+  unless($commit_user_name) {
+    $commit_user_name=`git config user.name`; chomp $commit_user_name;
+  }
+  if($lastlast && ($lastlast!~/</) && !$commit_user_email) {
+    $commit_user_email=`git config user.email`; chomp $commit_user_email;
+    $commit_user_email=" <$commit_user_email>";
+  }
+  $commit_user_email='' unless(defined $commit_user_email);
+
+  my $ret="# last:($uid,$gid) $commit_user_name$commit_user_email at " . strftime("%Y-%m-%d %H:%M:%S %z",localtime());
+  $myuid=$uid;
+  $mygid=$gid unless($mygid);
+  warn "mygid=$mygid" if($arg{debug});
+  return $ret;
+} # lastline
 
 
 
@@ -761,31 +855,34 @@ sub LoadMeta {
 sub SaveMeta {
   my($metafile)=@_; my %done;
   open(OUT,'>',$metafile) or die "write: $metafile: $!";
-
-  my $commit_author=`git config user.name`; chomp $commit_author;
-  if($last=~/</) { $commit_author .= ' <' . `git config user.email`; chomp $commit_author; $commit_author .= '>'; }
-  $commit_author .= ' at ' . strftime("%Y-%m-%d %H:%M:%S %z",localtime());
+  warn "mygid=$mygid" if($arg{debug});
 
   # my $current_branch=`git rev-parse --abbrev-ref HEAD`; chomp $current_branch;
 
   print OUT "# octal file mode, owner, group, mtime, atime, spare1, spare2, filename\t# https://github.com/gitcnd/git-meta.git v$VERSION\n" if(ref $meta[0]);
-  print OUT "# last: $commit_author\n" if(ref $meta[0]);
+  #print OUT "# last: $commit_author\n" if(ref $meta[0]);
+  print OUT &lastline($last)."\n" if(ref $meta[0]);
 
   for(my $i=0; $i<=$#meta;$i++) {
     # warn "i=$i"; warn "fn=" . $meta[$i]->[-1]; warn "idx=" . $meta{ $meta[$i]->[-1] };
     if(!ref $meta[$i]) { # comment
       if($meta[$i]=~/^# last: /) {
-        print OUT "# last: $commit_author\n"; # discard the old last: author remark
-        warn "# last: $commit_author" if($arg{debug});
+        #print OUT "# last: $commit_author\n"; # discard the old last: author remark
+        print OUT &lastline($last)."\n"; # discard the old last: author remark
+        warn &lastline($last) if($arg{debug});
       } else {
         print OUT $meta[$i] . "\n";
         warn $meta[$i] if($arg{debug});
       }
     } elsif( !$done{$meta[$i]->[-1]}++ ) {      #   $meta{ $meta[$i]->[-1] }==$i )      # new or unchanged
-      my $newest_i=$meta{ $meta[$i]->[-1] };
-      print OUT join(',',@{$meta[$newest_i]}) . "\n";   # "$meta[$i]->[-1]" is the filename, and the outer $meta{  } is the hash of the filename, which contains the @meta index number of the most recent info to use
-      warn join(',',@{$meta[$newest_i]}) if($arg{debug});
-
+      my $fn=$meta[$i]->[-1]; # the list
+      my $newest_i=$meta{ $fn }; # the hash
+      if(-e $fn) {
+        print OUT join(',',@{$meta[$newest_i]}) . "\n";   # "$meta[$i]->[-1]" is the filename, and the outer $meta{  } is the hash of the filename, which contains the @meta index number of the most recent info to use
+        warn join(',',@{$meta[$newest_i]}) if($arg{debug});
+      } else {
+        warn "Skipped non-exist:" . join(',',@{$meta[$newest_i]}) if($arg{debug});
+      }
     } else {
       print "Skipping appended $meta[$i]->[-1] at index $i because we earlier overwrote the older one from here: $meta{ $meta[$i]->[-1] }\n" if($arg{debug});
     }
@@ -843,10 +940,12 @@ sub RestoreMeta {
 	my $cmd="chmod $newfm->[$names{$n}] $qmf";
 	print "$grn$cmd$norm\n" if($arg{debug});
 	print $yel . `$cmd` . $norm unless($dryrun);
+      } elsif($arg{debug}){
+	print "$blu same: $nowfm->[$names{$n}] == $newfm->[$names{$n}] $n$norm\n";
       }
 
       $n='owner';
-      if( $nowfm->[$names{$n}] ne $newfm->[$names{$n}] ) {
+      if( $nowfm->[$names{$n}] ne $newfm->[$names{$n}] && $newfm->[$names{$n}]) {
 	my $cmd="chown $newfm->[$names{$n}] $qmf";
 	print "$grn$cmd$norm\n" if($arg{debug});
 	print $yel . `$cmd` . $norm unless($dryrun);
